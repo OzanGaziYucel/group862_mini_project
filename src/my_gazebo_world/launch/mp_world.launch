@@ -1,0 +1,20 @@
+<launch>
+  <!-- Argument to choose whether to show Gazebo GUI -->
+  <arg name="gui" default="true"/>
+
+  <!-- Start Gazebo with the custom world -->
+  <include file="$(find gazebo_ros)/launch/empty_world.launch">
+    <arg name="world_name" value="$(find mp_world)/worlds/mp_world.sdf"/>
+    <arg name="paused" value="false"/>
+    <arg name="use_sim_time" value="true"/>
+    <arg name="gui" value="true"/>
+  </include>
+
+  <!-- Start RViz -->
+  <node name="rviz" pkg="rviz" type="rviz" args="-d $(find mp_world)/config/mp_world.rviz" output="screen"/>
+  <node pkg="tf" type="static_transform_publisher" name="kinect_tf" args="0 0 0 0 0 0 world kinect_link 10" />
+  <node name="camera_info_publisher" pkg="mp_world" type="publish_camera_info.py" output="screen"/>
+  <node name="point_cloud_segmentation" pkg="mp_world" type="point_cloud_segmentation.py" output="screen"/>
+
+
+</launch>

@@ -1,0 +1,12 @@
+# Ignore everything inside src except my_gazebo_world
+src/*
+!src/my_gazebo_world
+!src/CMakeLists.txt
+
+# Ignore build and devel files
+build/
+devel/
+install/
+log/
+*.pyc
+*.swp
