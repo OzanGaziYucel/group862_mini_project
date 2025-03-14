@@ -1,0 +1,8 @@
+prefix=/home/ozan/group862_mini_project/install
+
+Name: mia_hand_driver
+Description: Description of mia_hand_driver
+Version: 1.0.2
+Cflags: -I${prefix}/include
+Libs: -L${prefix}/lib -lmia_hand_driver -lserial
+Requires: roscpp mia_hand_msgs std_srvs

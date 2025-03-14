@@ -1,0 +1,8 @@
+prefix=/home/ozan/group862_mini_project/install
+
+Name: mia_hand_ros_control
+Description: Description of mia_hand_ros_control
+Version: 1.0.2
+Cflags: -I${prefix}/include
+Libs: -L${prefix}/lib 
+Requires: mia_hand_driver mia_hand_description hardware_interface controller_manager roscpp control_msgs trajectory_msgs pluginlib transmission_interface urdf control_toolbox joint_limits_interface rqt_joint_trajectory_controller

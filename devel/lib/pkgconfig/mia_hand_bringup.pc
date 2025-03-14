@@ -1,0 +1,8 @@
+prefix=/home/ozan/group862_mini_project/devel
+
+Name: mia_hand_bringup
+Description: Description of mia_hand_bringup
+Version: 1.0.2
+Cflags: 
+Libs: -L${prefix}/lib 
+Requires: 
