@@ -1,0 +1,4 @@
+rospy
+numpy
+open3d
+scipy

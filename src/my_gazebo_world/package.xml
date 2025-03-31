@@ -1,0 +1,23 @@
+<?xml version="1.0"?>
+<package format="2">
+
+  <name>mp_world</name>
+  <version>1.0.0</version>
+  <description>
+    Custom Gazebo world package for group862_mini_project. 
+    This package includes a Gazebo world file and a launch file.
+  </description>
+
+  <maintainer email="oyucel24@student.aau.dk">Ozan Gazi Yücel</maintainer>
+  <license>BSD</license>
+
+  <!-- Dependencies -->
+  <buildtool_depend>catkin</buildtool_depend>
+  <build_depend>roscpp</build_depend>
+  <build_depend>gazebo_ros</build_depend>
+
+  <exec_depend>roscpp</exec_depend>
+  <exec_depend>gazebo_ros</exec_depend>
+  <exec_depend>gazebo_plugins</exec_depend>
+
+</package>
