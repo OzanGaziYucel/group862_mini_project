@@ -59,6 +59,7 @@ def mp_main_block():
         # 1. Load the point cloud data
         pcd = o3d_cloud
 
+
         rotation_matrix = np.array([
                             [1, 0, 0, 0], 
                             [0, -1, 0, 0], 
@@ -72,61 +73,130 @@ def mp_main_block():
         pcd = pcd.voxel_down_sample(voxel_size=0.002)
         pcd, _ = pcd.remove_statistical_outlier(nb_neighbors=20, std_ratio=2.0)
 
+
         # 2. Find and remove table using RANSAC
+        # Create empty point clouds for visualization
+        table_cloud = o3d.geometry.PointCloud()
+        wall_cloud = o3d.geometry.PointCloud()
+        # First plane segmentation
         plane_model, inliers = pcd.segment_plane(distance_threshold=0.02,
                                             ransac_n=3,
                                             num_iterations=1000)
         [a, b, c, d] = plane_model
+
+        # Store first plane parameters
+        first_plane = {'normal': [a, b, c], 'distance': d}
+        # REPLACE your existing classification logic with this:
+        # For a horizontal plane (table) in rotated space, the normal should be close to [0,0,-1]
+        # For a vertical plane (wall) in rotated space, the normal should be perpendicular to [0,0,-1]
         
-        # Check if this is a horizontal plane (table)
-        # Normal vector should be roughly [0,0,1] or [0,0,-1]
-        is_horizontal = abs(abs(c) - 1.0) < 0.2
+        # Calculate angle between normal and vertical axis [0,0,-1]
+        vertical_axis = np.array([0, 0, -1])  # After rotation, this is "up"
+        normal_vector = np.array([a, b, c])
+        normal_norm = np.linalg.norm(normal_vector)
         
+        # For horizontal planes (tables), the normal should be orthogonal to up direction
+        # For vertical planes (walls), the normal should be parallel to up direction
+        cos_angle = abs(np.dot(normal_vector, vertical_axis)) / normal_norm
+        angle_with_vertical = np.arccos(cos_angle) * 180 / np.pi
+        
+        # ADJUSTED HORIZONTAL DETECTION:
+        # A horizontal plane has its normal vector perpendicular to the vertical axis
+        is_horizontal = angle_with_vertical > 70  # Within ~15 degrees of perpendicular
+        
+        rospy.loginfo(f"Plane normal: [{a:.4f}, {b:.4f}, {c:.4f}], angle with vertical: {angle_with_vertical:.2f}°, cos: {cos_angle:.4f}, is_horizontal: {is_horizontal}")
+
         if is_horizontal:
-            # Extract table plane
-            table_cloud = pcd.select_by_index(inliers)
-            table_cloud.paint_uniform_color([1.0, 0, 0])  # Red for visualization
-            
+            # This is a table
+            temp_plane_cloud = pcd.select_by_index(inliers)
             # Calculate area from width in X and Y direction
-            extent = table_cloud.get_axis_aligned_bounding_box().get_extent()
+            extent = temp_plane_cloud.get_axis_aligned_bounding_box().get_extent()
             area = extent[0] * extent[1]  # x * y 
 
-            if area > 0.25:
+            if area > 0.10:
                 rospy.loginfo("✅ Plane is large enough to be considered a table. Removing it.")
+                table_cloud = temp_plane_cloud
+                table_cloud.paint_uniform_color([1.0, 0.0, 0.0])  # Red for table
                 remaining_cloud = pcd.select_by_index(inliers, invert=True)
+                table_plane = first_plane  # Save first plane parameters
             else:
                 rospy.logwarn("❌ Plane is too small to be a table. Skipping removal.")
-                remaining_cloud = pcd  # Masayı silme, aynen devam
+                remaining_cloud = pcd  # don't erase keep same
+        else:
+            # This is a wall
+            temp_plane_cloud = pcd.select_by_index(inliers)
+            # Check if this is large enough to be a wall
+            inlier_ratio = len(inliers) / len(np.asarray(pcd.points))
             
-            # 3. Find and remove wall (if present)
-            plane_model, inliers = remaining_cloud.segment_plane(distance_threshold=0.02,
+            if inlier_ratio > 0.3:
+                rospy.loginfo("✅ Detected vertical plane (wall). Removing it.")
+                wall_cloud = temp_plane_cloud
+                wall_cloud.paint_uniform_color([0.0, 1.0, 0.0])  # Green for wall
+                remaining_cloud = pcd.select_by_index(inliers, invert=True)
+                wall_plane = first_plane  # Save first plane parameters
+            else:
+                rospy.logwarn("❌ Vertical plane is too small to be a wall. Skipping removal.")
+                remaining_cloud = pcd
+
+       # Try to find a second plane if we haven't found both yet
+        if (table_cloud.is_empty() or wall_cloud.is_empty()) and len(np.asarray(remaining_cloud.points)) > 100:
+            plane_model2, inliers2 = remaining_cloud.segment_plane(distance_threshold=0.02,
                                                             ransac_n=3,
                                                             num_iterations=1000)
+            [a2, b2, c2, d2] = plane_model2
             
-            # Check if this is a vertical plane and sufficiently large 
-            inlier_ratio = len(inliers) / len(np.asarray(remaining_cloud.points))
-            [a, b, c, d] = plane_model
-            is_vertical = abs(c) < 0.2  # normal vector roughly perpendicular to [0,0,1]
+            # Store second plane parameters
+            second_plane = {'normal': [a2, b2, c2], 'distance': d2}
             
-            if is_vertical and inlier_ratio > 0.4:
-                # Extract wall plane
-                wall_cloud = remaining_cloud.select_by_index(inliers)
-                wall_cloud.paint_uniform_color([0, 1.0, 0])  # Green for visualization
-                
-                # Remove wall points
-                object_cloud = remaining_cloud.select_by_index(inliers, invert=True)
-            else:
-                object_cloud = remaining_cloud
-        else:
-            # If no horizontal plane found, continue with the original cloud
-            object_cloud = pcd
-        pcd=object_cloud
-        pcd
+            # Use the same logic consistently for second pass
+            vertical_axis = np.array([0, 0, -1]) 
+            normal_vector2 = np.array([a2, b2, c2])
+            normal_norm2 = np.linalg.norm(normal_vector2)
+            
+            cos_angle2 = abs(np.dot(normal_vector2, vertical_axis)) / normal_norm2
+            angle_with_vertical2 = np.arccos(cos_angle2) * 180 / np.pi
+            
+        
+            is_horizontal2 = angle_with_vertical2 > 70  # Within ~15 degrees of perpendicular
 
-        table_cloud.paint_uniform_color([1.0, 0.0, 0.0])  # Paint the town red
-        o3d.visualization.draw_geometries([table_cloud], window_name="❌ Removed Surface (RANSAC Inliers)")
+            if is_horizontal2 and table_cloud.is_empty():
+                # Found a table in the second pass
+                temp_plane_cloud = remaining_cloud.select_by_index(inliers2)
+                extent = temp_plane_cloud.get_axis_aligned_bounding_box().get_extent()
+                area = extent[0] * extent[1]
+                
+                if area > 0.10:
+                    rospy.loginfo("✅ Detected horizontal plane (table) in second pass. Removing it.")
+                    table_cloud = temp_plane_cloud
+                    table_cloud.paint_uniform_color([1.0, 0.0, 0.0])  # Red for table
+                    remaining_cloud = remaining_cloud.select_by_index(inliers2, invert=True)
+                    table_plane = second_plane  # Save table plane parameters from second pass
+            elif not is_horizontal2 and wall_cloud.is_empty():
+                # Found a wall in the second pass
+                temp_plane_cloud = remaining_cloud.select_by_index(inliers2)
+                inlier_ratio = len(inliers2) / len(np.asarray(remaining_cloud.points))
+                
+                if inlier_ratio > 0.3:
+                    rospy.loginfo("✅ Detected vertical plane (wall) in second pass. Removing it.")
+                    wall_cloud = temp_plane_cloud
+                    wall_cloud.paint_uniform_color([0.0, 1.0, 0.0])  # Green for wall
+                    remaining_cloud = remaining_cloud.select_by_index(inliers2, invert=True)
+                    wall_plane = second_plane  # Save wall plane parameters from second pass
+        
+        # Set the final point cloud for further processing
+        pcd = remaining_cloud
+
+        # Visualize what was removed (table and/or wall)
+        if not table_cloud.is_empty():
+            o3d.visualization.draw_geometries([table_cloud], window_name="❌ Removed Table Surface (RANSAC Inliers)")
+        # Visualize what was removed (wall)    
+        if not wall_cloud.is_empty():
+            o3d.visualization.draw_geometries([wall_cloud], window_name="❌ Removed Wall Surface")
+        # Visualize remaining points after all plane removal
         o3d.visualization.draw_geometries([pcd], window_name="Planar Surfaces Removed")
 
+
+        # 3. Euclidean clustering
         # Euclidean clustering with fine-tuned parameters
         pcd.estimate_normals(search_param=o3d.geometry.KDTreeSearchParamHybrid(radius=0.05, max_nn=30))
         labels = np.array(pcd.cluster_dbscan(eps=0.03, min_points=10, print_progress=True))
@@ -185,7 +255,7 @@ def mp_main_block():
         axis = cylinder_params['axis'] / np.linalg.norm(cylinder_params['axis'])
 
         # Rotate axis to Z axis
-        z_axis = np.array([0, 0, 1])
+        z_axis = np.array([0, 0, -1])
         v = np.cross(z_axis, axis)
         s = np.linalg.norm(v)
         c = np.dot(z_axis, axis)
@@ -229,8 +299,10 @@ def mp_main_block():
         print(f"\n\n")
 
 def grasp_type_selection(best_model, sphere_params=None, cylinder_params=None):
-    threshold_sphere = 0.03   # 3 cm
-    threshold_cyl_radius = 0.015   # 1.5 cm
+    threshold_sphere = 0.025   # 25 mm
+    threshold_cyl_radius = 0.025   # 25 mm
+    threshold_cyl_length = 0.08   # 80 mm
+    threshold_cyl_angel = 45   # 45 degrees
     margin_p = 0.002  # 2 mm
     margin_l = 0.003  # 3 mm
     reason = None
@@ -238,25 +310,34 @@ def grasp_type_selection(best_model, sphere_params=None, cylinder_params=None):
     if best_model == "sphere":
         if sphere_params is not None and sphere_params["radius"] > threshold_sphere:
             grasp_type = "Palmar"
-            reason = "Sphere radius is larger than 3 cm"
+            reason = "Sphere radius is larger than 25 mm"
             grasp_size = 2*sphere_params["radius"] + margin_p
         else:
             grasp_type = "Lateral" 
-            reason = "Sphere radius is smaller than 3 cm"
+            reason = "Sphere radius is smaller than 25 mm"
             grasp_size = 2*sphere_params["radius"] + margin_l
     elif best_model == "cylinder":
         if cylinder_params:
             radius = cylinder_params["radius"]
             angle = cylinder_params["approach_angle"]  # Calculated in degrees
-            if radius < threshold_cyl_radius:
-                # If the radius is less than 1.5 cm, Lateral + 90 degree approach (tiny cylinder situation)
-                reason = "Cylinder radius is smaller than 1.5 cm (Tiny cylinder)"
-                grasp_type = "Lateral (angle=90 deg) from top"
-                grasp_size = 2*radius + margin_l
+            length = cylinder_params["height"]
+            if length < threshold_cyl_length:
+                if radius < threshold_cyl_radius:
+                    reason = "Cylinder radius is smaller than 25 mm (Tiny cylinder)"
+                    grasp_type = "Lateral (angle=90 deg) from top"
+                    grasp_size = 2*radius + margin_l
+                else:
+                    if angle > threshold_cyl_angel:
+                        grasp_type = f"Palmar (angle={angle:.1f} deg) from side"
+                        reason = "Cylinder length is smaller than 8cm, cylinder radius is bigger than 25 mm, approach angle is bigger than 45 degrees"
+                        grasp_size = 2*radius + margin_p
+                    else:
+                        grasp_type = f"Lateral (angle={angle:.1f} deg) from side"
+                        reason = "Cylinder length is smaller than 8cm, cylinder radius is bigger than 25 mm, approach angle is smaller than 45 degrees"
+                        grasp_size = 2*radius + margin_l
             else:
-                # Palmar + calculated approach angle value for larger cylinders
                 grasp_type = f"Palmar (angle={angle:.1f} deg) from side"
-                reason = "Cylinder radius is larger than 1.5 cm"
+                reason = "Cylinder length is larger than 80 mm"
                 grasp_size = 2*radius + margin_p
         else:
             # If cylinder_params is None then the default grasp type is Palmar
@@ -340,7 +421,7 @@ def fit_cylinder_bounded(points, centroid, cluster_size):
     proj_lengths = np.abs(np.dot(v, optimized_axis))
     height = np.max(proj_lengths) * 2
 
-    approach_angle = compute_approach_angle(optimized_axis, np.array([0, 0, 1]))
+    approach_angle = compute_approach_angle(optimized_axis, np.array([0, 0, -1]))
     params = {
         "center": optimized_center,
         "axis": optimized_axis,
@@ -349,13 +430,12 @@ def fit_cylinder_bounded(points, centroid, cluster_size):
         "approach_angle": approach_angle
     }
     error = cylinder_error(result.x) / len(points)
-
     return params, error
 
-def compute_approach_angle(cylinder_axis, reference_axis=np.array([0, 0, 1])):
+def compute_approach_angle(cylinder_axis, reference_axis=np.array([0, 0, -1])):
     """
     cylinder_axis: Normalized axis of the cylinder (3D vector)
-    reference_axis: Reference axis to compare ([0,0,1] in world coordinates)
+    reference_axis: Reference axis to compare ([0,0,-1] in world coordinates)
     """
     # If the axis of the cylinder is already normalized, we can do the dot multiplication directly.
     dot = np.dot(cylinder_axis, reference_axis)

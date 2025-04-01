@@ -468,28 +468,28 @@
       <pose>1.41479 0.95859 0 0 -0 0</pose>
     </model>
     <state world_name='mp_world'>
-      <sim_time>1918 843000000</sim_time>
-      <real_time>26 688481914</real_time>
-      <wall_time>1743361478 748598676</wall_time>
-      <iterations>25937</iterations>
+      <sim_time>1968 297000000</sim_time>
+      <real_time>49 934837842</real_time>
+      <wall_time>1743430705 84661119</wall_time>
+      <iterations>49454</iterations>
       <model name='beer'>
-        <pose>1.20405 1.03383 1.01499 -1e-06 2.6e-05 0.005404</pose>
+        <pose>1.20405 1.03383 1.01499 -1e-06 2.6e-05 0.005439</pose>
         <scale>1 1 1</scale>
         <link name='link'>
-          <pose>1.20405 1.03383 1.12999 -1e-06 2.6e-05 0.005404</pose>
+          <pose>1.20405 1.03383 1.12999 -1e-06 2.6e-05 0.005439</pose>
           <velocity>0 0 0 0 -0 0</velocity>
           <acceleration>0 0 -9.8 0 -0 0</acceleration>
           <wrench>0 0 -3.822 0 -0 0</wrench>
         </link>
       </model>
       <model name='coke_can'>
-        <pose>1.48725 0.988989 1.01243 -0.008492 0.003027 -0.010201</pose>
+        <pose>1.48725 0.988982 1.01243 -0.0112 0.004011 -0.010411</pose>
         <scale>1 1 1</scale>
         <link name='link'>
-          <pose>1.48725 0.988989 1.01243 -0.008492 0.003027 -0.010201</pose>
+          <pose>1.48725 0.988982 1.01243 -0.0112 0.004011 -0.010411</pose>
           <velocity>0 0 0 0 -0 0</velocity>
-          <acceleration>-0.017958 -0.077757 0.005658 1.34525 -0.307774 -0.235083</acceleration>
-          <wrench>-0.007004 -0.030325 0.002207 0 -0 0</wrench>
+          <acceleration>0.069446 -0.05731 -0.000824 0.994299 1.21081 -0.0798</acceleration>
+          <wrench>0.027084 -0.022351 -0.000321 0 -0 0</wrench>
         </link>
       </model>
       <model name='cricket_ball'>
@@ -523,10 +523,10 @@
         </link>
       </model>
       <model name='kinect'>
-        <pose>0.521459 0.461289 1.25424 -0.022111 0.138306 1.17371</pose>
+        <pose>0.450996 0.490586 1.25257 -0.022111 0.138306 1.17371</pose>
         <scale>1 1 1</scale>
         <link name='kinect_link'>
-          <pose>0.521459 0.461289 1.25424 -0.022111 0.138306 1.17371</pose>
+          <pose>0.450996 0.490586 1.25257 -0.022111 0.138306 1.17371</pose>
           <velocity>0 0 0 0 -0 0</velocity>
           <acceleration>0 0 0 0 -0 0</acceleration>
           <wrench>0 0 0 0 -0 0</wrench>
@@ -543,13 +543,13 @@
         </link>
       </model>
       <model name='tube_2_25cm'>
-        <pose>0.906835 1.04967 1.014 2.3e-05 -2.8e-05 0.000484</pose>
+        <pose>0.906836 1.04967 1.014 2.2e-05 -2.9e-05 0.000466</pose>
         <scale>1 1 1</scale>
         <link name='link'>
-          <pose>0.906834 1.04967 1.07125 2.3e-05 -2.8e-05 0.000484</pose>
+          <pose>0.906834 1.04967 1.07125 2.2e-05 -2.9e-05 0.000466</pose>
           <velocity>0 0 0 0 -0 0</velocity>
-          <acceleration>-0.082315 0.127813 0.000506 -2.25764 -1.4539 -0.017623</acceleration>
-          <wrench>-0.002914 0.004525 1.8e-05 0 -0 0</wrench>
+          <acceleration>0.061757 -0.116788 0.003026 2.04824 1.08299 -0.005068</acceleration>
+          <wrench>0.002186 -0.004134 0.000107 0 -0 0</wrench>
         </link>
       </model>
       <light name='sun'>
