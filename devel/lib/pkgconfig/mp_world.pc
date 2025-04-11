@@ -1,4 +1,4 @@
-prefix=/home/ozan/group862_mini_project/devel
+prefix=/home/eymen/group862_mini_project/devel
 
 Name: mp_world
 Description: Description of mp_world

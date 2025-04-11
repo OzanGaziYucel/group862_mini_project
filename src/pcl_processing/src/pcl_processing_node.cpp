@@ -11,20 +11,23 @@
 #include <pcl/point_types.h>
 
 #include <pcl/filters/voxel_grid.h>
+
+// Declare the publisher as a global variable
+ros::Publisher pub;
  
 void cloudCallback(const sensor_msgs::PointCloud2ConstPtr& cloud_msg) {
 
     // Convert ROS message to PCL point cloud
 
-    pcl::PointCloud<pcl::PointXYZ>::Ptr cloud(new pcl::PointCloud<pcl::PointXYZ>());
+    pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud(new pcl::PointCloud<pcl::PointXYZRGB>());
 
     pcl::fromROSMsg(*cloud_msg, *cloud);
  
     // Downsample the point cloud
 
-    pcl::PointCloud<pcl::PointXYZ>::Ptr cloud_filtered(new pcl::PointCloud<pcl::PointXYZ>());
+    pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud_filtered(new pcl::PointCloud<pcl::PointXYZRGB>());
 
-    pcl::VoxelGrid<pcl::PointXYZ> voxel_filter;
+    pcl::VoxelGrid<pcl::PointXYZRGB> voxel_filter;
 
     voxel_filter.setInputCloud(cloud);
 
@@ -34,8 +37,7 @@ void cloudCallback(const sensor_msgs::PointCloud2ConstPtr& cloud_msg) {
  
     // Print the number of points in the downsampled cloud
     ROS_INFO("Downsampled cloud has %zu points.", cloud_filtered->points.size());
-
-
+    
     // Convert filtered cloud back to ROS message
 
     sensor_msgs::PointCloud2 output;
@@ -46,7 +48,6 @@ void cloudCallback(const sensor_msgs::PointCloud2ConstPtr& cloud_msg) {
  
     // Publish the downsampled cloud
 
-    static ros::Publisher pub = ros::NodeHandle().advertise<sensor_msgs::PointCloud2>("downsampled_cloud", 1);
 
     pub.publish(output);
 
@@ -57,6 +58,10 @@ int main(int argc, char** argv) {
     ros::init(argc, argv, "downsample_node");
 
     ros::NodeHandle nh;
+    
+    // Initialize the publisher in the main function
+    pub = nh.advertise<sensor_msgs::PointCloud2>("downsampled_cloud", 1);
+
  
     // Subscribe to input point cloud topic
 

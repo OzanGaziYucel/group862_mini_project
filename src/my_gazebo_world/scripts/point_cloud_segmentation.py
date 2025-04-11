@@ -365,7 +365,7 @@ def fit_sphere(points, centroid, cluster_size):
         distances = np.linalg.norm(points - center, axis=1)
         return np.sum((distances - radius) ** 2)
 
-    # We add BOUND: radius max should not exceed 2 times the object
+    # We add BOUND: radius max should not exceed 0.5 times the object
     bounds = Bounds([-np.inf, -np.inf, -np.inf, 0], [np.inf, np.inf, np.inf, cluster_size * 0.5])
 
     initial_params = np.append(initial_center, initial_radius)

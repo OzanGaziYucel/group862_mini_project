@@ -268,7 +268,7 @@ if __name__ == '__main__':
 
         if not args.local:
             # environment at generation time
-            CMAKE_PREFIX_PATH = r'/home/ozan/group862_mini_project/devel;/home/ozan/catkin_ws/devel;/opt/ros/noetic'.split(';')
+            CMAKE_PREFIX_PATH = r'/home/eymen/group862_mini_project/devel;/opt/ros/noetic;/usr/lib/x86_64-linux-gnu/cmake/pcl;/usr/lib/x86_64-linux-gnu/cmake/pcl'.split(';')
         else:
             # don't consider any other prefix path than this one
             CMAKE_PREFIX_PATH = []
