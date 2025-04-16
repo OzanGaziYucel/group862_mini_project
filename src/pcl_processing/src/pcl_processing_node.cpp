@@ -12,6 +12,37 @@
 #include <pcl/filters/passthrough.h>
 
 
+
+// Configuration structure to hold parameters
+struct PCLConfig {
+    // Downsampling parameters
+    float voxel_leaf_size;
+    
+    // Depth filter parameters
+    float min_depth;
+    float max_depth;
+    
+    // LCCP segmentation parameters
+    float voxel_resolution;
+    float seed_resolution;
+    float color_importance;
+    float spatial_importance;
+    float normal_importance;
+    float concavity_tolerance_threshold;
+    bool use_smoothness_check;
+    float smoothness_threshold;
+    float k_factor;
+    int min_segment_size;
+    bool use_supervoxel_refinement;
+    float small_segment_threshold_percent;
+    bool use_single_camera_transform;
+    int supervoxel_refinement_iterations;
+};
+
+// Declare the publisher as a global variable
+ros::Publisher pub;
+PCLConfig config;  // Global config object
+
 // Add this function to generate random colors for segments
 // Improved function to generate distinct, vivid colors
 std::vector<uint32_t> generateColors(size_t count) {
@@ -111,21 +142,13 @@ pcl::PointCloud<pcl::PointXYZRGB>::Ptr colorSegmentedCloud(
 pcl::PointCloud<pcl::PointXYZL>::Ptr segmentPointCloudLCCP(
     const pcl::PointCloud<pcl::PointXYZRGB>::Ptr& input_cloud) {
 
-   // Parameters for supervoxel clustering - using values closer to the example
-   float voxel_resolution = 0.03f;     // Similar to example (0.0075)
-   float seed_resolution = 0.15f;      // Similar to example (0.03)
-   float color_importance = 0.1f;      // From example
-   float spatial_importance = 1.0f;    // From example
-   float normal_importance = 5.0f;     // From example
-   bool use_supervoxel_refinement = true;
-
    // Create supervoxel clustering object
-   pcl::SupervoxelClustering<pcl::PointXYZRGB> super(voxel_resolution, seed_resolution);
+   pcl::SupervoxelClustering<pcl::PointXYZRGB> super(config.voxel_resolution, config.seed_resolution);
    super.setInputCloud(input_cloud);
-   super.setColorImportance(color_importance);
-   super.setSpatialImportance(spatial_importance);
-   super.setNormalImportance(normal_importance);
-   super.setUseSingleCameraTransform(false);
+   super.setColorImportance(config.color_importance);
+   super.setSpatialImportance(config.spatial_importance);
+   super.setNormalImportance(config.normal_importance);
+   super.setUseSingleCameraTransform(config.use_single_camera_transform);
 
 
     // Perform supervoxel clustering
@@ -135,21 +158,23 @@ pcl::PointCloud<pcl::PointXYZL>::Ptr segmentPointCloudLCCP(
     ROS_INFO("Extracted %lu supervoxels", supervoxel_clusters.size());
 
 
-    if (use_supervoxel_refinement) {
-        super.refineSupervoxels(2, supervoxel_clusters); // Pass the supervoxel_clusters map// Refine supervoxels (optional)
+    if (config.use_supervoxel_refinement) {
+        super.refineSupervoxels(config.supervoxel_refinement_iterations, supervoxel_clusters);
     }
 
     // Get adjacency map of supervoxels
     std::multimap<uint32_t, uint32_t> supervoxel_adjacency;
     super.getSupervoxelAdjacency(supervoxel_adjacency);
 
-    // Perform LCCP segmentation - using values closer to the example
+    // Perform LCCP segmentation
     pcl::LCCPSegmentation<pcl::PointXYZRGB> lccp;
-    lccp.setConcavityToleranceThreshold(15.0);      // From example
-    lccp.setSanityCheck(true);                      // From example
-    lccp.setSmoothnessCheck(true, voxel_resolution, seed_resolution, 0.15); // From example
-    lccp.setKFactor(0.5);                             // From example
-    lccp.setMinSegmentSize(500);                    // Adjusted for your data
+    lccp.setConcavityToleranceThreshold(config.concavity_tolerance_threshold);
+    lccp.setSanityCheck(true);
+    if (config.use_smoothness_check) {
+        lccp.setSmoothnessCheck(true, config.voxel_resolution, config.seed_resolution, config.smoothness_threshold);
+    }
+    lccp.setKFactor(config.k_factor);
+    lccp.setMinSegmentSize(config.min_segment_size);
     lccp.setInputSupervoxels(supervoxel_clusters, supervoxel_adjacency);
     lccp.segment();
    
@@ -191,15 +216,16 @@ pcl::PointCloud<pcl::PointXYZL>::Ptr segmentPointCloudLCCP(
                 100.0f * segment.second / lccp_labeled_cloud->points.size());
     }
 
-    // Filter out small segments (less than 1% of total points)
+    // Filter out small segments (less than configured threshold of total points)
     pcl::PointCloud<pcl::PointXYZL>::Ptr filtered_cloud(new pcl::PointCloud<pcl::PointXYZL>());
     filtered_cloud->header = lccp_labeled_cloud->header;
     filtered_cloud->is_dense = lccp_labeled_cloud->is_dense;
     
     // Determine which segments to keep (segments with >= 1% of points)
     std::set<uint32_t> segments_to_keep;
-    size_t points_threshold = static_cast<size_t>(lccp_labeled_cloud->points.size() * 0.01); // 1% threshold
-    
+    size_t points_threshold = static_cast<size_t>(lccp_labeled_cloud->points.size() * 
+                                                 config.small_segment_threshold_percent / 100.0);
+
     for (const auto& segment : sorted_segments) {
         if (segment.second >= points_threshold) {
             segments_to_keep.insert(segment.first);
@@ -232,9 +258,6 @@ pcl::PointCloud<pcl::PointXYZL>::Ptr segmentPointCloudLCCP(
     return filtered_cloud;
 }
 
-// Declare the publisher as a global variable
-ros::Publisher pub;
-
 // Function to downsample the point cloud
 pcl::PointCloud<pcl::PointXYZRGB>::Ptr downsamplePointCloud(
     const pcl::PointCloud<pcl::PointXYZRGB>::Ptr& input_cloud) {
@@ -243,7 +266,7 @@ pcl::PointCloud<pcl::PointXYZRGB>::Ptr downsamplePointCloud(
     pcl::VoxelGrid<pcl::PointXYZRGB> voxel_filter;
 
     voxel_filter.setInputCloud(input_cloud);
-    voxel_filter.setLeafSize(0.01f, 0.01f, 0.01f); // Adjust leaf size as needed
+    voxel_filter.setLeafSize(config.voxel_leaf_size, config.voxel_leaf_size, config.voxel_leaf_size); // Adjust leaf size as needed
     voxel_filter.filter(*cloud_filtered);
 
     // ROS_INFO("Downsampled cloud has %zu points.", cloud_filtered->points.size());
@@ -252,8 +275,7 @@ pcl::PointCloud<pcl::PointXYZRGB>::Ptr downsamplePointCloud(
 
 // Function to filter out points with depth less than min_depth using PCL's PassThrough filter
 pcl::PointCloud<pcl::PointXYZRGB>::Ptr filterPointsByDepth(
-    const pcl::PointCloud<pcl::PointXYZRGB>::Ptr& input_cloud,
-    float min_depth = 0.05) {
+    const pcl::PointCloud<pcl::PointXYZRGB>::Ptr& input_cloud) {
     
     pcl::PointCloud<pcl::PointXYZRGB>::Ptr filtered_cloud(new pcl::PointCloud<pcl::PointXYZRGB>());
     
@@ -261,11 +283,11 @@ pcl::PointCloud<pcl::PointXYZRGB>::Ptr filterPointsByDepth(
     pcl::PassThrough<pcl::PointXYZRGB> pass;
     pass.setInputCloud(input_cloud);
     pass.setFilterFieldName("z");  // Filter based on z-axis (depth)
-    pass.setFilterLimits(min_depth, FLT_MAX);  // Keep points with z > min_depth
+    pass.setFilterLimits(config.min_depth, config.max_depth);  // Keep points with z > min_depth
     pass.filter(*filtered_cloud);
     
     ROS_INFO("Depth filter: removed %zu points with depth less than %.2f meters",
-             input_cloud->points.size() - filtered_cloud->points.size(), min_depth);
+             input_cloud->points.size() - filtered_cloud->points.size(), config.min_depth);
     
     return filtered_cloud;
 }
@@ -279,7 +301,7 @@ void cloudCallback(const sensor_msgs::PointCloud2ConstPtr& cloud_msg) {
     
     pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud_filtered = downsamplePointCloud(cloud);
 
-    cloud_filtered = filterPointsByDepth(cloud_filtered, 1.1);
+    cloud_filtered = filterPointsByDepth(cloud_filtered);
 
     // Perform LCCP segmentation
     pcl::PointCloud<pcl::PointXYZL>::Ptr segmented_cloud = segmentPointCloudLCCP(cloud_filtered);
@@ -298,17 +320,42 @@ void cloudCallback(const sensor_msgs::PointCloud2ConstPtr& cloud_msg) {
 }
  
 int main(int argc, char** argv) {
-
-    ros::init(argc, argv, "segmentation_node");
-
+    ros::init(argc, argv, "pcl_processing_node");
     ros::NodeHandle nh;
+    ros::NodeHandle private_nh("~");
+
+    // Load parameters from the parameter server with defaults
+    // Downsampling parameters
+    private_nh.param<float>("voxel_leaf_size", config.voxel_leaf_size, 0.01f);
+    // Depth filter parameters
+    private_nh.param<float>("min_depth", config.min_depth, 1.1f);
+    private_nh.param<float>("max_depth", config.max_depth, 5.0f);
+    // LCCP segmentation parameters
+    private_nh.param<float>("voxel_resolution", config.voxel_resolution, 0.03f);
+    private_nh.param<float>("seed_resolution", config.seed_resolution, 0.15f);
+    private_nh.param<float>("color_importance", config.color_importance, 0.1f);
+    private_nh.param<float>("spatial_importance", config.spatial_importance, 1.0f);
+    private_nh.param<float>("normal_importance", config.normal_importance, 5.0f);
+    private_nh.param<float>("concavity_tolerance_threshold", config.concavity_tolerance_threshold, 15.0f);
+    private_nh.param<bool>("use_smoothness_check", config.use_smoothness_check, true);
+    private_nh.param<float>("smoothness_threshold", config.smoothness_threshold, 0.15f);
+    private_nh.param<float>("k_factor", config.k_factor, 0.5f);
+    private_nh.param<int>("min_segment_size", config.min_segment_size, 500);
+    private_nh.param<bool>("use_supervoxel_refinement", config.use_supervoxel_refinement, true);
+    private_nh.param<float>("small_segment_threshold_percent", config.small_segment_threshold_percent, 1.0f);
+    private_nh.param<bool>("use_single_camera_transform", config.use_single_camera_transform, false);
+    private_nh.param<int>("supervoxel_refinement_iterations", config.supervoxel_refinement_iterations, 2);
+    
+    // Log the configuration
+    ROS_INFO("PCL Processing Configuration:");
+    ROS_INFO("  Voxel leaf size: %.3f", config.voxel_leaf_size);
+    ROS_INFO("  Depth filter: min=%.2f, max=%.2f", config.min_depth, config.max_depth);
+    ROS_INFO("  LCCP params: voxel_res=%.3f, seed_res=%.3f", config.voxel_resolution, config.seed_resolution);
     
     // Initialize the publisher in the main function
     pub = nh.advertise<sensor_msgs::PointCloud2>("segmented_cloud", 1);
 
- 
     // Subscribe to input point cloud topic
-
     ros::Subscriber sub = nh.subscribe("input_cloud", 1, cloudCallback);
  
     ros::spin();
