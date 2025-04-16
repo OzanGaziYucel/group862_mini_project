@@ -15,6 +15,10 @@
 
 // Configuration structure to hold parameters
 struct PCLConfig {
+    // ROS parameters
+    std::string input_topic;
+    std::string output_topic;
+
     // Downsampling parameters
     float voxel_leaf_size;
     
@@ -293,6 +297,8 @@ pcl::PointCloud<pcl::PointXYZRGB>::Ptr filterPointsByDepth(
 }
  
 void cloudCallback(const sensor_msgs::PointCloud2ConstPtr& cloud_msg) {
+    // Record start time
+    ros::Time start_time = ros::Time::now();
     // Convert ROS message to PCL point cloud
     pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud(new pcl::PointCloud<pcl::PointXYZRGB>());
     pcl::fromROSMsg(*cloud_msg, *cloud);
@@ -316,7 +322,8 @@ void cloudCallback(const sensor_msgs::PointCloud2ConstPtr& cloud_msg) {
  
     // Publish the downsampled cloud
     pub.publish(output);
-
+    ros::Duration duration = ros::Time::now() - start_time;
+    ROS_INFO("Processing time: %.2f milliseconds", duration.toSec() * 1000.0);
 }
  
 int main(int argc, char** argv) {
@@ -325,6 +332,8 @@ int main(int argc, char** argv) {
     ros::NodeHandle private_nh("~");
 
     // Load parameters from the parameter server with defaults
+    private_nh.param<std::string>("input_topic", config.input_topic, "/input_cloud");
+    private_nh.param<std::string>("output_topic", config.output_topic, "/segmented_cloud");
     // Downsampling parameters
     private_nh.param<float>("voxel_leaf_size", config.voxel_leaf_size, 0.01f);
     // Depth filter parameters
@@ -353,10 +362,10 @@ int main(int argc, char** argv) {
     ROS_INFO("  LCCP params: voxel_res=%.3f, seed_res=%.3f", config.voxel_resolution, config.seed_resolution);
     
     // Initialize the publisher in the main function
-    pub = nh.advertise<sensor_msgs::PointCloud2>("segmented_cloud", 1);
+    pub = nh.advertise<sensor_msgs::PointCloud2>(config.output_topic, 1);
 
     // Subscribe to input point cloud topic
-    ros::Subscriber sub = nh.subscribe("input_cloud", 1, cloudCallback);
+    ros::Subscriber sub = nh.subscribe(config.input_topic, 1, cloudCallback);
  
     ros::spin();
 
