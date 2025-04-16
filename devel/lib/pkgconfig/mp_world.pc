@@ -1,8 +1,0 @@
-prefix=/home/eymen/group862_mini_project/devel
-
-Name: mp_world
-Description: Description of mp_world
-Version: 1.0.0
-Cflags: 
-Libs: -L${prefix}/lib 
-Requires: 

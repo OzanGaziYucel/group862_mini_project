@@ -9,6 +9,7 @@
 #include <pcl/segmentation/lccp_segmentation.h>
 #include <pcl/segmentation/supervoxel_clustering.h>
 #include <pcl/common/common.h>
+#include <pcl/filters/passthrough.h>
 
 
 // Add this function to generate random colors for segments
@@ -66,14 +67,6 @@ pcl::PointCloud<pcl::PointXYZRGB>::Ptr colorSegmentedCloud(
     
     // Generate random colors for each label
     std::vector<uint32_t> colors = generateColors(unique_labels.size());
-    // print out the list of colors
-    // for (size_t i = 0; i < colors.size(); ++i) {
-    //     uint8_t r = (colors[i] >> 16) & 0xFF;
-    //     uint8_t g = (colors[i] >> 8) & 0xFF;
-    //     uint8_t b = colors[i] & 0xFF;
-    //     ROS_INFO("Color %zu: R=%u, G=%u, B=%u", i, r, g, b);
-    // }
-    // ROS_INFO("Generated %zu colors for %zu unique labels", colors.size(), unique_labels.size());
     std::map<uint32_t, uint32_t> label_to_color;
     
     size_t color_idx = 0;
@@ -81,12 +74,6 @@ pcl::PointCloud<pcl::PointXYZRGB>::Ptr colorSegmentedCloud(
         label_to_color[label] = colors[color_idx++];
     }
 
-    // print out the label to color mapping
-    // for (const auto& pair : label_to_color) {
-    //     ROS_INFO("Label %u -> Color %u", pair.first, pair.second);
-    // }
-    // ROS_INFO("Created label to color mapping for %zu unique labels", label_to_color.size());
-    
     // Create a new colored cloud
     pcl::PointCloud<pcl::PointXYZRGB>::Ptr colored_cloud(new pcl::PointCloud<pcl::PointXYZRGB>());
     colored_cloud->width = labeled_cloud->width;
@@ -97,7 +84,6 @@ pcl::PointCloud<pcl::PointXYZRGB>::Ptr colorSegmentedCloud(
     // Assign colors based on segment labels
     for (size_t i = 0; i < labeled_cloud->points.size(); i++) {
         const auto& labeled_point = labeled_cloud->points[i];
-        // ROS_INFO("Point %zu: Label %u, X=%f, Y=%f, Z=%f", i, labeled_point.label, labeled_point.x, labeled_point.y, labeled_point.z);
         auto& colored_point = colored_cloud->points[i];
         
         // Copy XYZ coordinates
@@ -115,12 +101,7 @@ pcl::PointCloud<pcl::PointXYZRGB>::Ptr colorSegmentedCloud(
         colored_point.g = g;
         colored_point.b = b;
 
-        // Print out the color values for debugging
-        // ROS_INFO("Colored Point %zu: R=%u, G=%u, B=%u", i, r, g, b);
-        // ROS_INFO("Colored Point %zu: Label %u, X=%f, Y=%f, Z=%f", i, labeled_point.label, colored_point.x, colored_point.y, colored_point.z);
-        // ROS_INFO("Colored Point %zu: Label %u, Color %u", i, labeled_point.label, rgb_color);
     }
-    ROS_INFO("Colored cloud has %zu points.", colored_cloud->points.size());
     
     return colored_cloud;
 }
@@ -131,11 +112,11 @@ pcl::PointCloud<pcl::PointXYZL>::Ptr segmentPointCloudLCCP(
     const pcl::PointCloud<pcl::PointXYZRGB>::Ptr& input_cloud) {
 
    // Parameters for supervoxel clustering - using values closer to the example
-   float voxel_resolution = 0.01f;     // Similar to example (0.0075)
-   float seed_resolution = 0.05f;      // Similar to example (0.03)
-   float color_importance = 0.2f;      // From example
+   float voxel_resolution = 0.03f;     // Similar to example (0.0075)
+   float seed_resolution = 0.15f;      // Similar to example (0.03)
+   float color_importance = 0.1f;      // From example
    float spatial_importance = 1.0f;    // From example
-   float normal_importance = 4.0f;     // From example
+   float normal_importance = 5.0f;     // From example
    bool use_supervoxel_refinement = true;
 
    // Create supervoxel clustering object
@@ -164,11 +145,11 @@ pcl::PointCloud<pcl::PointXYZL>::Ptr segmentPointCloudLCCP(
 
     // Perform LCCP segmentation - using values closer to the example
     pcl::LCCPSegmentation<pcl::PointXYZRGB> lccp;
-    lccp.setConcavityToleranceThreshold(10.0);      // From example
+    lccp.setConcavityToleranceThreshold(15.0);      // From example
     lccp.setSanityCheck(true);                      // From example
-    lccp.setSmoothnessCheck(true, voxel_resolution, seed_resolution, 0.1); // From example
-    lccp.setKFactor(0);                             // From example
-    lccp.setMinSegmentSize(100);                    // Adjusted for your data
+    lccp.setSmoothnessCheck(true, voxel_resolution, seed_resolution, 0.15); // From example
+    lccp.setKFactor(0.5);                             // From example
+    lccp.setMinSegmentSize(500);                    // Adjusted for your data
     lccp.setInputSupervoxels(supervoxel_clusters, supervoxel_adjacency);
     lccp.segment();
    
@@ -183,12 +164,72 @@ pcl::PointCloud<pcl::PointXYZL>::Ptr segmentPointCloudLCCP(
     for (const auto& point : lccp_labeled_cloud->points) {
         unique_labels.insert(point.label);
     }
+
+    // Count points in each segment
+    std::map<uint32_t, size_t> segment_sizes;
+    for (const auto& point : lccp_labeled_cloud->points) {
+        segment_sizes[point.label]++;
+    }
     
-    ROS_INFO("LCCP found approximately %lu segments (unique labels)", unique_labels.size());
-    ROS_INFO("LCCP segmentation completed. Cloud has %zu points.", lccp_labeled_cloud->points.size());
+    // Sort segments by size (largest to smallest)
+    std::vector<std::pair<uint32_t, size_t>> sorted_segments;
+    for (const auto& segment : segment_sizes) {
+        sorted_segments.push_back(segment);
+    }
+    
+    std::sort(sorted_segments.begin(), sorted_segments.end(), 
+              [](const std::pair<uint32_t, size_t>& a, const std::pair<uint32_t, size_t>& b) {
+                  return a.second > b.second; 
+              });
+    
+    // Print segment sizes
+    ROS_INFO("Segment sizes (label: point count):");
+    for (const auto& segment : sorted_segments) {
+        ROS_INFO("  Label %u: %zu points (%.2f%% of cloud)", 
+                segment.first, 
+                segment.second,
+                100.0f * segment.second / lccp_labeled_cloud->points.size());
+    }
 
-
-    return lccp_labeled_cloud;
+    // Filter out small segments (less than 1% of total points)
+    pcl::PointCloud<pcl::PointXYZL>::Ptr filtered_cloud(new pcl::PointCloud<pcl::PointXYZL>());
+    filtered_cloud->header = lccp_labeled_cloud->header;
+    filtered_cloud->is_dense = lccp_labeled_cloud->is_dense;
+    
+    // Determine which segments to keep (segments with >= 1% of points)
+    std::set<uint32_t> segments_to_keep;
+    size_t points_threshold = static_cast<size_t>(lccp_labeled_cloud->points.size() * 0.01); // 1% threshold
+    
+    for (const auto& segment : sorted_segments) {
+        if (segment.second >= points_threshold) {
+            segments_to_keep.insert(segment.first);
+            ROS_INFO("Keeping segment %u with %zu points (%.2f%%)", 
+                    segment.first, segment.second, 
+                    100.0f * segment.second / lccp_labeled_cloud->points.size());
+        } else {
+            ROS_INFO("Filtering out segment %u with %zu points (%.2f%%)", 
+                    segment.first, segment.second,
+                    100.0f * segment.second / lccp_labeled_cloud->points.size());
+        }
+    }
+    
+    // Copy only the points from segments we want to keep
+    for (const auto& point : lccp_labeled_cloud->points) {
+        if (segments_to_keep.find(point.label) != segments_to_keep.end()) {
+            filtered_cloud->points.push_back(point);
+        }
+    }
+    
+    // Update width and height for unorganized point cloud
+    filtered_cloud->width = filtered_cloud->points.size();
+    filtered_cloud->height = 1;
+    
+    ROS_INFO("After filtering: Kept %zu segments with %zu points (%.2f%% of original cloud)",
+             segments_to_keep.size(), filtered_cloud->points.size(),
+             100.0f * filtered_cloud->points.size() / lccp_labeled_cloud->points.size());
+    
+    // Return the filtered cloud instead of the original
+    return filtered_cloud;
 }
 
 // Declare the publisher as a global variable
@@ -208,22 +249,28 @@ pcl::PointCloud<pcl::PointXYZRGB>::Ptr downsamplePointCloud(
     // ROS_INFO("Downsampled cloud has %zu points.", cloud_filtered->points.size());
     return cloud_filtered;
 }
+
+// Function to filter out points with depth less than min_depth using PCL's PassThrough filter
+pcl::PointCloud<pcl::PointXYZRGB>::Ptr filterPointsByDepth(
+    const pcl::PointCloud<pcl::PointXYZRGB>::Ptr& input_cloud,
+    float min_depth = 0.05) {
+    
+    pcl::PointCloud<pcl::PointXYZRGB>::Ptr filtered_cloud(new pcl::PointCloud<pcl::PointXYZRGB>());
+    
+    // Create the filtering object
+    pcl::PassThrough<pcl::PointXYZRGB> pass;
+    pass.setInputCloud(input_cloud);
+    pass.setFilterFieldName("z");  // Filter based on z-axis (depth)
+    pass.setFilterLimits(min_depth, FLT_MAX);  // Keep points with z > min_depth
+    pass.filter(*filtered_cloud);
+    
+    ROS_INFO("Depth filter: removed %zu points with depth less than %.2f meters",
+             input_cloud->points.size() - filtered_cloud->points.size(), min_depth);
+    
+    return filtered_cloud;
+}
  
 void cloudCallback(const sensor_msgs::PointCloud2ConstPtr& cloud_msg) {
-    // print out the fırst 10 points of the input cloud
-    for (size_t i = 0; i < 10 && i < cloud_msg->width * cloud_msg->height; ++i) {
-        float x, y, z;
-        memcpy(&x, &cloud_msg->data[i * cloud_msg->point_step], sizeof(float));
-        memcpy(&y, &cloud_msg->data[i * cloud_msg->point_step + 4], sizeof(float));
-        memcpy(&z, &cloud_msg->data[i * cloud_msg->point_step + 8], sizeof(float));
-        // and the colors
-        uint8_t r, g, b;
-        memcpy(&r, &cloud_msg->data[i * cloud_msg->point_step + 12], sizeof(uint8_t));
-        memcpy(&g, &cloud_msg->data[i * cloud_msg->point_step + 13], sizeof(uint8_t));
-        memcpy(&b, &cloud_msg->data[i * cloud_msg->point_step + 14], sizeof(uint8_t));
-        // Print out the point coordinates and colors
-        ROS_INFO("Point %zu: X=%f, Y=%f, Z=%f, R=%u, G=%u, B=%u", i, x, y, z, r, g, b);
-    }
     // Convert ROS message to PCL point cloud
     pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud(new pcl::PointCloud<pcl::PointXYZRGB>());
     pcl::fromROSMsg(*cloud_msg, *cloud);
@@ -231,6 +278,8 @@ void cloudCallback(const sensor_msgs::PointCloud2ConstPtr& cloud_msg) {
     ROS_INFO("Input cloud has %zu points", cloud->size());
     
     pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud_filtered = downsamplePointCloud(cloud);
+
+    cloud_filtered = filterPointsByDepth(cloud_filtered, 1.1);
 
     // Perform LCCP segmentation
     pcl::PointCloud<pcl::PointXYZL>::Ptr segmented_cloud = segmentPointCloudLCCP(cloud_filtered);
@@ -242,21 +291,6 @@ void cloudCallback(const sensor_msgs::PointCloud2ConstPtr& cloud_msg) {
     sensor_msgs::PointCloud2 output;
     pcl::toROSMsg(*colored_cloud, output);
     output.header = cloud_msg->header;
-
-    // print out the first 10 points of the output cloud
-    for (size_t i = 0; i < 10 && i < output.width * output.height; ++i) {
-        float x, y, z;
-        memcpy(&x, &output.data[i * output.point_step], sizeof(float));
-        memcpy(&y, &output.data[i * output.point_step + 4], sizeof(float));
-        memcpy(&z, &output.data[i * output.point_step + 8], sizeof(float));
-        // and the colors
-        uint8_t r, g, b;
-        memcpy(&r, &output.data[i * output.point_step + 12], sizeof(uint8_t));
-        memcpy(&g, &output.data[i * output.point_step + 13], sizeof(uint8_t));
-        memcpy(&b, &output.data[i * output.point_step + 14], sizeof(uint8_t));
-        // Print out the point coordinates and colors
-        ROS_INFO("Output Point %zu: X=%f, Y=%f, Z=%f, R=%u, G=%u, B=%u", i, x, y, z, r, g, b);
-    }
  
     // Publish the downsampled cloud
     pub.publish(output);

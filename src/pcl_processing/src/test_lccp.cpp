@@ -33,14 +33,27 @@ int main(int argc, char** argv) {
     pcl::toROSMsg(*cloud, output);
     output.header.frame_id = "map";  // Set the coordinate frame
 
-    // Give some time for the publisher to register
-    ros::Duration(1.0).sleep();
-    output.header.stamp = ros::Time::now();
-
-    // Publish the point cloud
-    pub.publish(output);
-
-    ROS_INFO("Published point cloud to topic 'input_cloud'.");
+    // Set up the rate for publishing
+    ros::Rate loop_rate(0.5); // 0.5 Hz = publish every 2 seconds
+    
+    ROS_INFO("Starting to publish point cloud to topic 'input_cloud'. Press Ctrl+C to stop.");
+    
+    // Continuously publish the point cloud
+    while (ros::ok()) {
+        // Update timestamp to current time
+        output.header.stamp = ros::Time::now();
+        
+        // Publish the point cloud
+        pub.publish(output);
+        
+        ROS_INFO("Published point cloud to topic 'input_cloud'.");
+        
+        // Sleep to maintain the desired rate
+        loop_rate.sleep();
+        
+        // Process any callbacks
+        ros::spinOnce();
+    }
 
     return 0;
 }
