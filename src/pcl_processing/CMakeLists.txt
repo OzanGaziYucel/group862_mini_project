@@ -105,10 +105,10 @@ set(CMAKE_PREFIX_PATH "/usr/lib/x86_64-linux-gnu/cmake/pcl" ${CMAKE_PREFIX_PATH}
 ## CATKIN_DEPENDS: catkin_packages dependent projects also need
 ## DEPENDS: system dependencies of this project that dependent projects also need
 catkin_package(
-#  INCLUDE_DIRS include
+  INCLUDE_DIRS include
 #  LIBRARIES pcl_processing
-#  CATKIN_DEPENDS pcl_conversions pcl_ros roscpp sensor_msgs std_msgs
-#  DEPENDS system_lib
+  CATKIN_DEPENDS pcl_conversions pcl_ros roscpp sensor_msgs std_msgs
+  DEPENDS PCL
 )
 
 ###########
@@ -118,15 +118,16 @@ catkin_package(
 ## Specify additional locations of header files
 ## Your package locations should be listed before other locations
 include_directories(
-# include
+  include
   ${catkin_INCLUDE_DIRS}
   ${PCL_INCLUDE_DIRS}
 )
 
 ## Declare a C++ library
-# add_library(${PROJECT_NAME}
-#   src/${PROJECT_NAME}/pcl_processing.cpp
-# )
+add_library(pcl_processing_lib
+  src/PCLProcessor.cpp
+  src/PCLProcessorConfig.cpp
+)
 
 ## Add cmake target dependencies of the library
 ## as an example, code may need to be generated before libraries
@@ -156,6 +157,7 @@ link_directories(${PCL_LIBRARY_DIRS})
 add_definitions(${PCL_DEFINITIONS})
 add_executable(pcl_processing_node src/pcl_processing_node.cpp)
 target_link_libraries(pcl_processing_node
+  pcl_processing_lib
   ${catkin_LIBRARIES}
   ${PCL_LIBRARIES}
 )
@@ -183,6 +185,15 @@ add_dependencies(test_lccp ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EXPORTED
 #   scripts/my_python_script
 #   DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
 # )
+
+install(TARGETS pcl_processing_node pcl_processing_lib
+  RUNTIME DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
+  LIBRARY DESTINATION ${CATKIN_PACKAGE_LIB_DESTINATION}
+)
+
+install(DIRECTORY include/${PROJECT_NAME}/
+  DESTINATION ${CATKIN_PACKAGE_INCLUDE_DESTINATION}
+)
 
 ## Mark executables for installation
 ## See http://docs.ros.org/melodic/api/catkin/html/howto/format1/building_executables.html
