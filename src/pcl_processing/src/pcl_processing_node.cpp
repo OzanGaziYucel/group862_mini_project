@@ -11,13 +11,17 @@
 #include <pcl/common/common.h>
 #include <pcl/filters/passthrough.h>
 
-
-
 // Configuration structure to hold parameters
 struct PCLConfig {
     // ROS parameters
     std::string input_topic;
     std::string output_topic;
+
+    // Debug mode parameters
+    bool debug_mode;
+    int queue_size;
+    bool publish_supervoxel_cloud;
+    std::string supervoxel_cloud_topic;
 
     // Downsampling parameters
     float voxel_leaf_size;
@@ -45,6 +49,7 @@ struct PCLConfig {
 
 // Declare the publisher as a global variable
 ros::Publisher pub;
+ros::Publisher supervoxel_pub; // Add this global publisher
 PCLConfig config;  // Global config object
 
 // Add this function to generate random colors for segments
@@ -141,7 +146,6 @@ pcl::PointCloud<pcl::PointXYZRGB>::Ptr colorSegmentedCloud(
     return colored_cloud;
 }
 
-
 // Function to perform LCCP segmentation
 pcl::PointCloud<pcl::PointXYZL>::Ptr segmentPointCloudLCCP(
     const pcl::PointCloud<pcl::PointXYZRGB>::Ptr& input_cloud) {
@@ -154,13 +158,11 @@ pcl::PointCloud<pcl::PointXYZL>::Ptr segmentPointCloudLCCP(
    super.setNormalImportance(config.normal_importance);
    super.setUseSingleCameraTransform(config.use_single_camera_transform);
 
-
     // Perform supervoxel clustering
     std::map<uint32_t, pcl::Supervoxel<pcl::PointXYZRGB>::Ptr> supervoxel_clusters;
     super.extract(supervoxel_clusters);
 
     ROS_INFO("Extracted %lu supervoxels", supervoxel_clusters.size());
-
 
     if (config.use_supervoxel_refinement) {
         super.refineSupervoxels(config.supervoxel_refinement_iterations, supervoxel_clusters);
@@ -182,9 +184,19 @@ pcl::PointCloud<pcl::PointXYZL>::Ptr segmentPointCloudLCCP(
     lccp.setInputSupervoxels(supervoxel_clusters, supervoxel_adjacency);
     lccp.segment();
    
- 
     // Get the labeled point cloud
     pcl::PointCloud<pcl::PointXYZL>::Ptr sv_labeled_cloud = super.getLabeledCloud();
+    if(config.publish_supervoxel_cloud) {
+        // Color the supervoxel-labeled cloud
+        pcl::PointCloud<pcl::PointXYZRGB>::Ptr sv_colored_cloud = colorSegmentedCloud(sv_labeled_cloud);
+        // Publish the supervoxel-labeled cloud for visualization
+        sensor_msgs::PointCloud2 sv_msg;
+        pcl::toROSMsg(*sv_colored_cloud, sv_msg);
+        sv_msg.header.frame_id = input_cloud->header.frame_id; // or your appropriate frame
+        supervoxel_pub.publish(sv_msg);
+    }
+    
+
     pcl::PointCloud<pcl::PointXYZL>::Ptr lccp_labeled_cloud = sv_labeled_cloud->makeShared();
     lccp.relabelCloud(*lccp_labeled_cloud);
 
@@ -324,6 +336,12 @@ void cloudCallback(const sensor_msgs::PointCloud2ConstPtr& cloud_msg) {
     pub.publish(output);
     ros::Duration duration = ros::Time::now() - start_time;
     ROS_INFO("Processing time: %.2f milliseconds", duration.toSec() * 1000.0);
+
+    if(config.debug_mode) {
+        // Wait for user input before processing the next message
+        std::cout << "Press Enter to process the next message..." << std::endl;
+        std::cin.get();
+    }
 }
  
 int main(int argc, char** argv) {
@@ -334,6 +352,11 @@ int main(int argc, char** argv) {
     // Load parameters from the parameter server with defaults
     private_nh.param<std::string>("input_topic", config.input_topic, "/input_cloud");
     private_nh.param<std::string>("output_topic", config.output_topic, "/segmented_cloud");
+    // Debug mode parameters
+    private_nh.param<bool>("debug_mode", config.debug_mode, false);
+    private_nh.param<int>("queue_size", config.queue_size, 1);
+    private_nh.param<bool>("publish_supervoxel_cloud", config.publish_supervoxel_cloud, false);
+    private_nh.param<std::string>("supervoxel_cloud_topic", config.supervoxel_cloud_topic, "/supervoxel_cloud");
     // Downsampling parameters
     private_nh.param<float>("voxel_leaf_size", config.voxel_leaf_size, 0.01f);
     // Depth filter parameters
@@ -363,13 +386,17 @@ int main(int argc, char** argv) {
     
     // Initialize the publisher in the main function
     pub = nh.advertise<sensor_msgs::PointCloud2>(config.output_topic, 1);
+    supervoxel_pub = nh.advertise<sensor_msgs::PointCloud2>(config.supervoxel_cloud_topic, 1);
 
     // Subscribe to input point cloud topic
-    ros::Subscriber sub = nh.subscribe(config.input_topic, 1, cloudCallback);
+    int queue_size = 1;
+    if (config.debug_mode) {
+        queue_size = config.queue_size;
+    }
+    ros::Subscriber sub = nh.subscribe(config.input_topic, queue_size, cloudCallback);
  
     ros::spin();
 
     return 0;
 
 }
- 
