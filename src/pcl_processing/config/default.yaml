@@ -6,6 +6,7 @@ debug_mode: true # if true, it will process each input message one by one, waiti
 queue_size: 40 # the number of input messages to be loaded and processed one by one
 publish_supervoxel_cloud: true # if true, it will publish the supervoxel cloud intermediate step
 supervoxel_cloud_topic: "/supervoxel_cloud" # topic to publish the supervoxel cloud
+centroid_marker_topic: "/centroid_markers" # topic to publish the centroid marker
 
 # Downsampling parameters
 voxel_leaf_size: 0.005 

@@ -19,6 +19,7 @@ private:
     PCLProcessorConfig config_;
     ros::Publisher pub_;
     ros::Publisher supervoxel_pub_;
+    ros::Publisher centroid_marker_pub_;
 
     // Processing methods
     pcl::PointCloud<pcl::PointXYZRGB>::Ptr downsample(
@@ -41,9 +42,13 @@ private:
         
     pcl::PointCloud<pcl::PointXYZL>::Ptr filterSmallSegments(
         const pcl::PointCloud<pcl::PointXYZL>::Ptr& labeled_cloud);
+        
+    std::map<uint32_t, Eigen::Vector4f> computeCentroids(
+        const pcl::PointCloud<pcl::PointXYZL>::Ptr& labeled_cloud);
 
     pcl::PointCloud<pcl::PointXYZRGB>::Ptr colorSegments(
         const pcl::PointCloud<pcl::PointXYZL>::Ptr&);
+
 
     std::vector<uint32_t> generateColors(size_t count);
 };

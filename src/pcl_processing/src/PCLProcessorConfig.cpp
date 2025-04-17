@@ -8,6 +8,7 @@ void loadConfig(ros::NodeHandle& nh, PCLProcessorConfig& config) {
     nh.param<int>("queue_size", config.queue_size, 1);
     nh.param<bool>("publish_supervoxel_cloud", config.publish_supervoxel_cloud, false);
     nh.param<std::string>("supervoxel_cloud_topic", config.supervoxel_cloud_topic, "/supervoxel_cloud");
+    nh.param<std::string>("centroid_marker_topic", config.centroid_marker_topic, "/centroid_markers");
     nh.param<float>("voxel_leaf_size", config.voxel_leaf_size, 0.01f);
     nh.param<float>("min_depth", config.min_depth, 1.1f);
     nh.param<float>("max_depth", config.max_depth, 5.0f);

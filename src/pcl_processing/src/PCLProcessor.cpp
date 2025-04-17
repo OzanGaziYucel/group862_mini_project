@@ -1,10 +1,13 @@
+#include <ros/ros.h>
 #include "pcl_processing/PCLProcessor.hpp"
 #include "pcl_processing/PCLProcessorConfig.hpp"
 #include <sensor_msgs/PointCloud2.h>
+#include <visualization_msgs/MarkerArray.h>
+#include <visualization_msgs/Marker.h>
 #include <pcl_conversions/pcl_conversions.h>
 #include <pcl/point_cloud.h>
 #include <pcl/point_types.h>
-
+#include <pcl/common/centroid.h>
 #include <pcl/filters/voxel_grid.h>
 #include <pcl/segmentation/lccp_segmentation.h>
 #include <pcl/segmentation/supervoxel_clustering.h>
@@ -18,6 +21,7 @@ PCLProcessor::PCLProcessor(ros::NodeHandle& nh, const PCLProcessorConfig& config
 {
     pub_ = nh.advertise<sensor_msgs::PointCloud2>(config_.output_topic, 1);
     supervoxel_pub_ = nh.advertise<sensor_msgs::PointCloud2>(config_.supervoxel_cloud_topic, 1);
+    centroid_marker_pub_ = nh.advertise<visualization_msgs::MarkerArray>(config_.centroid_marker_topic, 1);
 }
 
 std::vector<uint32_t> PCLProcessor::generateColors(size_t count) {
@@ -198,13 +202,14 @@ pcl::PointCloud<pcl::PointXYZL>::Ptr PCLProcessor::segmentLCCP(
     
     // Step 3: Get labeled cloud for visualization
     pcl::PointCloud<pcl::PointXYZL>::Ptr sv_labeled_cloud = super.getLabeledCloud();
+    sv_labeled_cloud->header = input_cloud->header;
     
     // Step 4: Publish supervoxel cloud if requested
     if(config_.publish_supervoxel_cloud) {
         pcl::PointCloud<pcl::PointXYZRGB>::Ptr sv_colored_cloud = colorSegments(sv_labeled_cloud);
         sensor_msgs::PointCloud2 sv_msg;
         pcl::toROSMsg(*sv_colored_cloud, sv_msg);
-        sv_msg.header.frame_id = "camera_link";
+        sv_msg.header.frame_id = input_cloud->header.frame_id;
         supervoxel_pub_.publish(sv_msg);
     }
     
@@ -213,7 +218,80 @@ pcl::PointCloud<pcl::PointXYZL>::Ptr PCLProcessor::segmentLCCP(
         performLCCPSegmentation(supervoxel_clusters, supervoxel_adjacency, sv_labeled_cloud);
     
     // Step 6: Filter small segments
-    return filterSmallSegments(lccp_labeled_cloud);
+    auto filtered_cloud = filterSmallSegments(lccp_labeled_cloud);
+    filtered_cloud->header = input_cloud->header;
+    return filtered_cloud;
+}
+
+std::map<uint32_t, Eigen::Vector4f> PCLProcessor::computeCentroids(
+    const pcl::PointCloud<pcl::PointXYZL>::Ptr& segmented_cloud) {
+    
+    // Group points by segment label
+    std::map<uint32_t, pcl::PointCloud<pcl::PointXYZL>::Ptr> segments;
+    
+    for (const auto& point : segmented_cloud->points) {
+        uint32_t label = point.label;
+        
+        if (segments.find(label) == segments.end()) {
+            segments[label] = pcl::PointCloud<pcl::PointXYZL>::Ptr(new pcl::PointCloud<pcl::PointXYZL>);
+        }
+        
+        segments[label]->points.push_back(point);
+    }
+    
+    // Compute centroid for each segment
+    std::map<uint32_t, Eigen::Vector4f> centroids;
+    
+    for (const auto& segment_pair : segments) {
+        uint32_t label = segment_pair.first;
+        const auto& segment_cloud = segment_pair.second;
+        
+        // Use PCL's built-in centroid computation
+        Eigen::Vector4f centroid;
+        pcl::compute3DCentroid(*segment_cloud, centroid);
+        centroids[label] = centroid;
+        
+        ROS_INFO("Segment %u: centroid at (%.3f, %.3f, %.3f) with %zu points", 
+                 label, centroid[0], centroid[1], centroid[2], segment_cloud->points.size());
+    }
+
+    // Visualize centroids with marker ROS messages
+    visualization_msgs::MarkerArray marker_array;
+    int id = 0;
+
+    for (const auto& centroid_pair : centroids) {
+        visualization_msgs::Marker marker;
+        marker.header.frame_id = segmented_cloud->header.frame_id;
+        marker.header.stamp = ros::Time::now();
+        marker.ns = "segment_centroids";
+        marker.id = id++;
+        marker.type = visualization_msgs::Marker::SPHERE;
+        marker.action = visualization_msgs::Marker::ADD;
+        
+        // Position
+        marker.pose.position.x = centroid_pair.second[0];
+        marker.pose.position.y = centroid_pair.second[1];
+        marker.pose.position.z = centroid_pair.second[2];
+        
+        // Size (diameter in meters)
+        marker.scale.x = 0.05;
+        marker.scale.y = 0.05;
+        marker.scale.z = 0.05;
+        
+        // Color (RGBA)
+        marker.color.r = 1.0;
+        marker.color.g = 0.0;
+        marker.color.b = 0.0;
+        marker.color.a = 1.0;
+        
+        marker.lifetime = ros::Duration(); // Forever
+        
+        marker_array.markers.push_back(marker);
+    }
+
+    centroid_marker_pub_.publish(marker_array);
+    
+    return centroids;
 }
 
 void PCLProcessor::processCloud(const sensor_msgs::PointCloud2ConstPtr& cloud_msg) {
@@ -227,6 +305,7 @@ void PCLProcessor::processCloud(const sensor_msgs::PointCloud2ConstPtr& cloud_ms
     cloud_filtered = filterDepth(cloud_filtered);
 
     auto segmented_cloud = segmentLCCP(cloud_filtered);
+    auto segment_centroids = computeCentroids(segmented_cloud);
     auto colored_cloud = colorSegments(segmented_cloud);
 
     sensor_msgs::PointCloud2 output;

@@ -10,6 +10,7 @@ struct PCLProcessorConfig {
     int queue_size;
     bool publish_supervoxel_cloud;
     std::string supervoxel_cloud_topic;
+    std::string centroid_marker_topic;
 
     float voxel_leaf_size;
     float min_depth;
