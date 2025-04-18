@@ -31,6 +31,12 @@ struct PCLProcessorConfig {
     int supervoxel_refinement_iterations;
     float small_segment_threshold_percent;
     bool use_single_camera_transform;
+
+    // Planar filtering parameters
+    bool filter_planar_segments;
+    float planar_distance_threshold;
+    float min_planar_inlier_percentage;
+    int max_planar_segment_size; // Max size (points) to be considered potentially planar
 };
 
 void loadConfig(ros::NodeHandle& nh, PCLProcessorConfig& config);

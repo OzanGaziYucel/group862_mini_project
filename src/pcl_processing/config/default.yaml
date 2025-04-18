@@ -31,3 +31,9 @@ use_smoothness_check: true
 smoothness_threshold: 1
 small_segment_threshold_percent: 0.2
 use_single_camera_transform: true
+
+# Planar segment filtering parameters
+filter_planar_segments: true          # Enable/disable the filter
+planar_distance_threshold: 0.015    # RANSAC distance threshold (meters)
+min_planar_inlier_percentage: 0.85  # Minimum percentage of inliers to classify as planar
+max_planar_segment_size: 5000       # Segments larger than this (in points) are checked for planarity

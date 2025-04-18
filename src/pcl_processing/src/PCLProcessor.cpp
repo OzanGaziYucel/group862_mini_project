@@ -13,8 +13,12 @@
 #include <pcl/segmentation/supervoxel_clustering.h>
 #include <pcl/common/common.h>
 #include <pcl/filters/passthrough.h>
+#include <pcl/segmentation/sac_segmentation.h>
+#include <pcl/ModelCoefficients.h>
+#include <pcl/PointIndices.h>
 #include <iostream>
 #include <algorithm>
+#include <set>
 
 PCLProcessor::PCLProcessor(ros::NodeHandle& nh, const PCLProcessorConfig& config)
     : config_(config)
@@ -188,6 +192,92 @@ pcl::PointCloud<pcl::PointXYZL>::Ptr PCLProcessor::filterSmallSegments(
     return filtered_cloud;
 }
 
+pcl::PointCloud<pcl::PointXYZL>::Ptr PCLProcessor::filterPlanarSegments(
+    const pcl::PointCloud<pcl::PointXYZL>::Ptr& labeled_cloud) {
+
+    if (!config_.filter_planar_segments) {
+        ROS_INFO("Planar segment filtering disabled.");
+        return labeled_cloud;
+    }
+
+    ROS_INFO("Starting planar segment filtering...");
+
+    // Group points by segment label
+    std::map<uint32_t, pcl::PointCloud<pcl::PointXYZL>::Ptr> segments;
+    for (const auto& point : labeled_cloud->points) {
+        uint32_t label = point.label;
+        if (segments.find(label) == segments.end()) {
+            segments[label] = pcl::PointCloud<pcl::PointXYZL>::Ptr(new pcl::PointCloud<pcl::PointXYZL>);
+            segments[label]->header = labeled_cloud->header; // Copy header info
+        }
+        segments[label]->points.push_back(point);
+    }
+
+    std::set<uint32_t> planar_labels_to_remove;
+    pcl::SACSegmentation<pcl::PointXYZL> seg;
+    pcl::PointIndices::Ptr inliers(new pcl::PointIndices);
+    pcl::ModelCoefficients::Ptr coefficients(new pcl::ModelCoefficients);
+
+    seg.setOptimizeCoefficients(true);
+    seg.setModelType(pcl::SACMODEL_PLANE);
+    seg.setMethodType(pcl::SAC_RANSAC);
+    seg.setDistanceThreshold(config_.planar_distance_threshold);
+    seg.setMaxIterations(100); // Max iterations for RANSAC
+
+    size_t total_points_before = labeled_cloud->points.size();
+    size_t planar_segments_found = 0;
+
+    for (const auto& segment_pair : segments) {
+        uint32_t label = segment_pair.first;
+        const auto& segment_cloud = segment_pair.second;
+
+        // Only check segments larger than the configured size threshold
+        if (segment_cloud->points.size() > config_.max_planar_segment_size) {
+            if (segment_cloud->points.size() < 3) { // Need at least 3 points for plane fitting
+               ROS_WARN("Segment %u too small for plane fitting (%zu points), skipping.", label, segment_cloud->points.size());
+               continue;
+            }
+
+            seg.setInputCloud(segment_cloud);
+            seg.segment(*inliers, *coefficients);
+
+            if (inliers->indices.empty()) {
+                ROS_WARN("Could not fit plane to segment %u with %zu points.", label, segment_cloud->points.size());
+                continue;
+            }
+
+            double inlier_percentage = static_cast<double>(inliers->indices.size()) / segment_cloud->points.size();
+
+            if (inlier_percentage >= config_.min_planar_inlier_percentage) {
+                planar_labels_to_remove.insert(label);
+                planar_segments_found++;
+                ROS_INFO("Segment %u identified as planar (size: %zu, inliers: %.2f%%). Marked for removal.",
+                         label, segment_cloud->points.size(), inlier_percentage * 100.0);
+            }
+        }
+    }
+
+    // Create the filtered cloud
+    pcl::PointCloud<pcl::PointXYZL>::Ptr filtered_cloud(new pcl::PointCloud<pcl::PointXYZL>());
+    filtered_cloud->header = labeled_cloud->header;
+
+    for (const auto& point : labeled_cloud->points) {
+        if (planar_labels_to_remove.find(point.label) == planar_labels_to_remove.end()) {
+            filtered_cloud->points.push_back(point);
+        }
+    }
+
+    filtered_cloud->width = filtered_cloud->points.size();
+    filtered_cloud->height = 1;
+    filtered_cloud->is_dense = true; // Assuming filtering doesn't introduce NaN/inf
+
+    size_t total_points_after = filtered_cloud->points.size();
+    ROS_INFO("Planar filtering removed %zu planar segments and %zu points.",
+             planar_segments_found, total_points_before - total_points_after);
+
+    return filtered_cloud;
+}
+
 pcl::PointCloud<pcl::PointXYZL>::Ptr PCLProcessor::segmentLCCP(
     const pcl::PointCloud<pcl::PointXYZRGB>::Ptr& input_cloud) {
     
@@ -305,8 +395,9 @@ void PCLProcessor::processCloud(const sensor_msgs::PointCloud2ConstPtr& cloud_ms
     cloud_filtered = filterDepth(cloud_filtered);
 
     auto segmented_cloud = segmentLCCP(cloud_filtered);
-    auto segment_centroids = computeCentroids(segmented_cloud);
-    auto colored_cloud = colorSegments(segmented_cloud);
+    auto segmented_cloud_filtered = filterPlanarSegments(segmented_cloud);
+    auto segment_centroids = computeCentroids(segmented_cloud_filtered);
+    auto colored_cloud = colorSegments(segmented_cloud_filtered);
 
     sensor_msgs::PointCloud2 output;
     pcl::toROSMsg(*colored_cloud, output);
