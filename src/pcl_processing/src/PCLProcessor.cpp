@@ -561,7 +561,12 @@ void PCLProcessor::fitAndPublishPrimitive(
     // --- 3. Box Fitting (Plane-based Method from Paper) ---
     if (segment_cloud->points.size() >= 3) { // Need points for plane fitting
 
-        pcl::PointCloud<pcl::PointXYZL>::Ptr remaining_cloud = segment_cloud; // Start with the full segment
+        // --- Store original size ---
+        const size_t original_segment_size = segment_cloud->points.size();
+
+        // --- Create a copy for modification ---
+        pcl::PointCloud<pcl::PointXYZL>::Ptr remaining_cloud(new pcl::PointCloud<pcl::PointXYZL>(*segment_cloud));
+
         pcl::PointIndices::Ptr inliers_plane1(new pcl::PointIndices);
         pcl::ModelCoefficients::Ptr coefficients_plane1(new pcl::ModelCoefficients);
         pcl::PointCloud<pcl::PointXYZL>::Ptr cloud_plane1(new pcl::PointCloud<pcl::PointXYZL>);
@@ -580,49 +585,53 @@ void PCLProcessor::fitAndPublishPrimitive(
 
         bool plane1_found = false;
         bool plane2_found = false;
-        size_t total_inliers = 0;
+        size_t plane1_inliers_count = 0; // Store counts separately
+        size_t plane2_inliers_count = 0;
 
         // --- Fit First Plane ---
+        // Use the copy 'remaining_cloud' for input
         seg_plane.setInputCloud(remaining_cloud);
         seg_plane.segment(*inliers_plane1, *coefficients_plane1);
 
         if (!inliers_plane1->indices.empty()) {
             plane1_found = true;
-            total_inliers += inliers_plane1->indices.size();
+            plane1_inliers_count = inliers_plane1->indices.size(); // Store count
 
-            // Extract inliers for plane 1
+            // Extract inliers for plane 1 from the copy
             extract.setInputCloud(remaining_cloud);
             extract.setIndices(inliers_plane1);
             extract.setNegative(false);
             extract.filter(*cloud_plane1);
 
             // Extract outliers (remaining points) for potential second plane fit
+            // This modifies the 'remaining_cloud' copy
             extract.setNegative(true);
-            extract.filter(*remaining_cloud); // Update remaining_cloud
+            extract.filter(*remaining_cloud);
 
-            ROS_INFO("Box fit: Found first plane with %zu inliers.", inliers_plane1->indices.size());
+            ROS_INFO("Box fit: Found first plane with %zu inliers.", plane1_inliers_count);
 
             // --- Fit Second Perpendicular Plane ---
             if (remaining_cloud->points.size() >= 3) {
+                // Use the modified 'remaining_cloud' copy
                 seg_plane.setInputCloud(remaining_cloud);
                 // Set constraints for perpendicular plane
                 seg_plane.setModelType(pcl::SACMODEL_PERPENDICULAR_PLANE);
                 Eigen::Vector3f axis(coefficients_plane1->values[0], coefficients_plane1->values[1], coefficients_plane1->values[2]);
                 seg_plane.setAxis(axis);
-                seg_plane.setEpsAngle(pcl::deg2rad(15.0)); // Angle tolerance (e.g., 15 degrees) - make configurable?
+                seg_plane.setEpsAngle(pcl::deg2rad(15.0)); // Angle tolerance
 
                 seg_plane.segment(*inliers_plane2, *coefficients_plane2);
 
                 if (!inliers_plane2->indices.empty()) {
                     plane2_found = true;
-                    total_inliers += inliers_plane2->indices.size();
+                    plane2_inliers_count = inliers_plane2->indices.size(); // Store count
 
-                    // Extract inliers for plane 2
-                    extract.setInputCloud(remaining_cloud); // Use the cloud *after* first plane removal
+                    // Extract inliers for plane 2 from the modified copy
+                    extract.setInputCloud(remaining_cloud);
                     extract.setIndices(inliers_plane2);
                     extract.setNegative(false);
                     extract.filter(*cloud_plane2);
-                    ROS_INFO("Box fit: Found second perpendicular plane with %zu inliers.", inliers_plane2->indices.size());
+                    ROS_INFO("Box fit: Found second perpendicular plane with %zu inliers.", plane2_inliers_count);
                 } else {
                     ROS_INFO("Box fit: Could not find a second perpendicular plane.");
                 }
@@ -633,11 +642,17 @@ void PCLProcessor::fitAndPublishPrimitive(
              ROS_INFO("Box fit: Could not find the first plane.");
         }
 
-        // --- Check Total Inlier Percentage ---
-        double box_inlier_percentage = static_cast<double>(total_inliers) / segment_cloud->points.size();
-        ROS_INFO("Box fit (plane method): Total inliers = %zu (%.2f%%)", total_inliers, box_inlier_percentage * 100.0);
+        // --- Check Total Inlier Percentage (using original size) ---
+        // Calculate the total number of points explained by the planes found
+        size_t total_explained_points = plane1_inliers_count + plane2_inliers_count;
+        // Calculate percentage relative to the ORIGINAL segment size
+        double box_inlier_percentage = static_cast<double>(total_explained_points) / original_segment_size;
 
-        // Proceed only if plane 1 was found and total inliers meet threshold
+        ROS_INFO("Box fit (plane method): Total inliers = %zu (%.2f%% of original %zu)",
+                 total_explained_points, box_inlier_percentage * 100.0, original_segment_size);
+
+        // Proceed only if plane 1 was found and total explained percentage meets threshold
+        // Use the calculated box_inlier_percentage here
         if (plane1_found && box_inlier_percentage >= config_.min_primitive_inlier_percentage) {
 
             // --- PCA on First Plane ---
@@ -712,7 +727,8 @@ void PCLProcessor::fitAndPublishPrimitive(
                      width, height, depth);
 
             // --- Compare with other primitives ---
-            if (box_inlier_percentage > best_inlier_percentage) { // Note: Using > instead of >= config... because we checked that earlier
+            // Use the calculated box_inlier_percentage for comparison
+            if (box_inlier_percentage > best_inlier_percentage) {
                 best_inlier_percentage = box_inlier_percentage;
                 best_primitive_type = 2;
 
@@ -732,7 +748,7 @@ void PCLProcessor::fitAndPublishPrimitive(
                 best_marker.lifetime = ros::Duration();
             }
         } else {
-             ROS_INFO("Box fit (plane method): Failed (Plane 1 not found or total inliers < %.2f%%).", config_.min_primitive_inlier_percentage * 100.0);
+             ROS_INFO("Box fit (plane method): Failed (Plane 1 not found or explained points < %.2f%%).", config_.min_primitive_inlier_percentage * 100.0);
         }
     } // End Box Fitting
 

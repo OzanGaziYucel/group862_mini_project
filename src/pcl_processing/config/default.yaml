@@ -41,7 +41,7 @@ max_planar_segment_size: 5000       # Segments larger than this (in points) are 
 # Primitive Fitting parameters
 primitive_marker_topic: "/primitive_marker" # Topic for the fitted primitive visualization
 primitive_distance_threshold: 0.01          # RANSAC distance threshold for sphere/cylinder
-min_primitive_inlier_percentage: 0.75       # Min inlier % to consider RANSAC fit successful
+min_primitive_inlier_percentage: 0.70       # Min inlier % to consider RANSAC fit successful
 cylinder_normal_distance_weight: 0.1        # Weight for normals in cylinder RANSAC
 cylinder_min_radius: 0.01                   # Min radius for cylinder RANSAC (meters)
 cylinder_max_radius: 0.2                    # Max radius for cylinder RANSAC (meters)
