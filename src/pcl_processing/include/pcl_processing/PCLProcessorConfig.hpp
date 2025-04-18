@@ -37,6 +37,16 @@ struct PCLProcessorConfig {
     float planar_distance_threshold;
     float min_planar_inlier_percentage;
     int max_planar_segment_size; // Max size (points) to be considered potentially planar
+
+    // Primitive Fitting parameters
+    std::string primitive_marker_topic;
+    float primitive_distance_threshold;
+    float min_primitive_inlier_percentage;
+    float cylinder_normal_distance_weight; // Weight for normals in cylinder fitting
+    float cylinder_min_radius;
+    float cylinder_max_radius;
+    float sphere_max_radius;
+
 };
 
 void loadConfig(ros::NodeHandle& nh, PCLProcessorConfig& config);

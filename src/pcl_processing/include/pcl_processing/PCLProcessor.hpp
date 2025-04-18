@@ -20,6 +20,8 @@ private:
     ros::Publisher pub_;
     ros::Publisher supervoxel_pub_;
     ros::Publisher centroid_marker_pub_;
+    ros::Publisher primitive_marker_pub_;
+
 
     // Processing methods
     pcl::PointCloud<pcl::PointXYZRGB>::Ptr downsample(
@@ -53,6 +55,9 @@ private:
     pcl::PointCloud<pcl::PointXYZRGB>::Ptr colorSegments(
         const pcl::PointCloud<pcl::PointXYZL>::Ptr&);
 
+    void fitAndPublishPrimitive(
+        const pcl::PointCloud<pcl::PointXYZL>::Ptr& segment_cloud,
+        const std_msgs::Header& header);
 
     std::vector<uint32_t> generateColors(size_t count);
 };

@@ -1,5 +1,5 @@
+#include "stdafx.h"
 #include "pcl_processing/PCLProcessorConfig.hpp"
-#include <ros/ros.h>
 
 void loadConfig(ros::NodeHandle& nh, PCLProcessorConfig& config) {
     nh.param<std::string>("input_topic", config.input_topic, "/input_cloud");
@@ -31,4 +31,13 @@ void loadConfig(ros::NodeHandle& nh, PCLProcessorConfig& config) {
     nh.param<float>("planar_distance_threshold", config.planar_distance_threshold, 0.015f); // e.g., 1.5 cm
     nh.param<float>("min_planar_inlier_percentage", config.min_planar_inlier_percentage, 0.85f); // e.g., 85%
     nh.param<int>("max_planar_segment_size", config.max_planar_segment_size, 5000); // e.g., segments larger than 5000 points are checked
+    // Load primitive fitting parameters
+    // Load primitive fitting parameters
+    nh.param<std::string>("primitive_marker_topic", config.primitive_marker_topic, "/primitive_marker");
+    nh.param<float>("primitive_distance_threshold", config.primitive_distance_threshold, 0.01f); // e.g., 1 cm
+    nh.param<float>("min_primitive_inlier_percentage", config.min_primitive_inlier_percentage, 0.75f); // e.g., 75%
+    nh.param<float>("cylinder_normal_distance_weight", config.cylinder_normal_distance_weight, 0.1f);
+    nh.param<float>("cylinder_min_radius", config.cylinder_min_radius, 0.01f); // e.g., 1cm min radius
+    nh.param<float>("cylinder_max_radius", config.cylinder_max_radius, 0.2f); // e.g., 20cm max radius
+    nh.param<float>("sphere_max_radius", config.sphere_max_radius, 0.2f); // e.g., 20cm max radius
 }

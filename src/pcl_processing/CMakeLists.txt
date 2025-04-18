@@ -14,7 +14,16 @@ find_package(catkin REQUIRED COMPONENTS
   sensor_msgs
   std_msgs
 )
-find_package(PCL REQUIRED)
+find_package(PCL REQUIRED
+  COMPONENTS
+    common
+    io
+    filters
+    features
+    segmentation
+    kdtree
+    search
+)
 set(CMAKE_PREFIX_PATH "/usr/lib/x86_64-linux-gnu/cmake/pcl" ${CMAKE_PREFIX_PATH})## System dependencies are found with CMake's conventions
 # find_package(Boost REQUIRED COMPONENTS system)
 
@@ -129,6 +138,33 @@ add_library(pcl_processing_lib
   src/PCLProcessorConfig.cpp
 )
 
+# Add PCL include directories specifically to the library target
+target_include_directories(pcl_processing_lib PUBLIC
+  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+  $<INSTALL_INTERFACE:include>
+  ${PCL_INCLUDE_DIRS}
+)
+
+# Link PCL libraries to the library target
+target_link_libraries(pcl_processing_lib PUBLIC
+  ${PCL_LIBRARIES}
+  ${catkin_LIBRARIES} # Also link catkin libs if needed by headers in the lib
+)
+
+# --- Add this command to enable PCH ---
+target_precompile_headers(pcl_processing_lib PUBLIC
+  src/stdafx.h
+)
+# --- End of PCH command ---
+
+# ... (add_executable for pcl_processing_node) ...
+add_executable(pcl_processing_node src/pcl_processing_node.cpp)
+target_link_libraries(pcl_processing_node
+  pcl_processing_lib # Link the library we just defined
+  # ${catkin_LIBRARIES} # Already linked via pcl_processing_lib PUBLIC
+  # ${PCL_LIBRARIES}   # Already linked via pcl_processing_lib PUBLIC
+)
+
 ## Add cmake target dependencies of the library
 ## as an example, code may need to be generated before libraries
 ## either from message generation or dynamic reconfigure
@@ -153,15 +189,16 @@ add_library(pcl_processing_lib
 # target_link_libraries(${PROJECT_NAME}_node
 #   ${catkin_LIBRARIES}
 # )
-link_directories(${PCL_LIBRARY_DIRS})
-add_definitions(${PCL_DEFINITIONS})
-add_executable(pcl_processing_node src/pcl_processing_node.cpp)
-target_link_libraries(pcl_processing_node
-  pcl_processing_lib
-  ${catkin_LIBRARIES}
-  ${PCL_LIBRARIES}
-)
-add_dependencies(pcl_processing_node ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS})
+
+# link_directories(${PCL_LIBRARY_DIRS})
+# add_definitions(${PCL_DEFINITIONS})
+# add_executable(pcl_processing_node src/pcl_processing_node.cpp)
+# target_link_libraries(pcl_processing_node
+#   pcl_processing_lib
+#   ${catkin_LIBRARIES}
+#   ${PCL_LIBRARIES}
+# )
+# add_dependencies(pcl_processing_node ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS})
 
 # Declare the ply_publisher executable
 add_executable(test_lccp src/test_lccp.cpp)
