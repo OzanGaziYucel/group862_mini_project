@@ -14,6 +14,8 @@ catkin_generated/
 *.swp
 *.swo
 
+*.bag
+
 
 __pycache__/
 *.pyc

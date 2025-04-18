@@ -694,12 +694,15 @@ void PCLProcessor::fitAndPublishPrimitive(
             float height = max_proj2 - min_proj2;
             Eigen::Vector3f center_plane = pca_mean + axis1 * (min_proj1 + width / 2.0f) + axis2 * (min_proj2 + height / 2.0f);
 
-            // --- Calculate Depth ---
+            // --- Calculate Depth (Paper's Method: Use Plane 2 if found) ---
             float depth = 0.005f; // Default "thin" object depth
-            if (plane2_found) {
-                float min_proj3 = std::numeric_limits<float>::max();
-                float max_proj3 = std::numeric_limits<float>::lowest();
-                for (const auto& pt : cloud_plane2->points) {
+            float min_proj3 = 0.0f; // Initialize projection values
+            float max_proj3 = 0.0f;
+
+            if (plane2_found && !cloud_plane2->points.empty()) {
+                min_proj3 = std::numeric_limits<float>::max();
+                max_proj3 = std::numeric_limits<float>::lowest();
+                for (const auto& pt : cloud_plane2->points) { // Use second plane's inliers
                     // Project onto the third axis relative to the first plane's center
                     float proj3 = (pt.getVector3fMap() - center_plane).dot(axis3);
                     min_proj3 = std::min(min_proj3, proj3);
@@ -708,13 +711,26 @@ void PCLProcessor::fitAndPublishPrimitive(
                 // Check if projection range is reasonable
                 if (max_proj3 > min_proj3) {
                      depth = max_proj3 - min_proj3;
+                     ROS_INFO("Box fit: Depth calculated from second plane: %.3f", depth);
                 } else {
-                    ROS_WARN("Box fit: Second plane projection resulted in non-positive depth. Using default.");
+                    ROS_WARN("Box fit: Second plane projection resulted in non-positive depth. Using default %.3f.", depth);
+                    // Keep the default depth = 0.005f
+                    // Reset projection range for center calculation if depth is default
+                    min_proj3 = -depth / 2.0f;
+                    max_proj3 = depth / 2.0f;
                 }
+            } else {
+                 ROS_INFO("Box fit: Second plane not found or empty. Using default depth %.3f.", depth);
+                 // Set projection range for center calculation if depth is default
+                 min_proj3 = -depth / 2.0f;
+                 max_proj3 = depth / 2.0f;
             }
 
+
             // --- Calculate Final Center and Orientation ---
-            Eigen::Vector3f geometric_center_world = center_plane + axis3 * (depth / 2.0f); // Adjust center based on depth
+            // Adjust center based on the projection range along axis3 relative to center_plane
+            // Use the min_proj3 and calculated depth
+            Eigen::Vector3f geometric_center_world = center_plane + axis3 * (min_proj3 + depth / 2.0f);
             Eigen::Matrix3f rotation_matrix;
             rotation_matrix.col(0) = axis1;
             rotation_matrix.col(1) = axis2;
