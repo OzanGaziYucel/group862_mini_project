@@ -19,6 +19,7 @@
 #include <iostream>
 #include <algorithm>
 #include <set>
+#include <limits>
 
 PCLProcessor::PCLProcessor(ros::NodeHandle& nh, const PCLProcessorConfig& config)
     : config_(config)
@@ -313,21 +314,31 @@ pcl::PointCloud<pcl::PointXYZL>::Ptr PCLProcessor::segmentLCCP(
     return filtered_cloud;
 }
 
-std::map<uint32_t, Eigen::Vector4f> PCLProcessor::computeCentroids(
-    const pcl::PointCloud<pcl::PointXYZL>::Ptr& segmented_cloud) {
+bool PCLProcessor::computeCentroids(
+    const pcl::PointCloud<pcl::PointXYZL>::Ptr& segmented_cloud,
+    uint32_t& selected_label_out) {
     
     // Group points by segment label
     std::map<uint32_t, pcl::PointCloud<pcl::PointXYZL>::Ptr> segments;
-    
     for (const auto& point : segmented_cloud->points) {
         uint32_t label = point.label;
-        
         if (segments.find(label) == segments.end()) {
             segments[label] = pcl::PointCloud<pcl::PointXYZL>::Ptr(new pcl::PointCloud<pcl::PointXYZL>);
+            segments[label]->header = segmented_cloud->header; // Copy header
         }
-        
         segments[label]->points.push_back(point);
     }
+
+    // Clear previous markers
+    visualization_msgs::MarkerArray delete_markers;
+    visualization_msgs::Marker marker_delete;
+    marker_delete.header.frame_id = segmented_cloud->header.frame_id; // Use the same frame_id
+    marker_delete.header.stamp = ros::Time::now();
+    marker_delete.ns = "segment_centroids"; // Must match the namespace of markers to delete
+    marker_delete.id = 0; // ID doesn't matter for DELETEALL
+    marker_delete.action = visualization_msgs::Marker::DELETEALL;
+    delete_markers.markers.push_back(marker_delete);
+    centroid_marker_pub_.publish(delete_markers);
     
     // Compute centroid for each segment
     std::map<uint32_t, Eigen::Vector4f> centroids;
@@ -335,7 +346,8 @@ std::map<uint32_t, Eigen::Vector4f> PCLProcessor::computeCentroids(
     for (const auto& segment_pair : segments) {
         uint32_t label = segment_pair.first;
         const auto& segment_cloud = segment_pair.second;
-        
+        if (segment_cloud->points.empty()) continue; // Should not happen, but safety check
+
         // Use PCL's built-in centroid computation
         Eigen::Vector4f centroid;
         pcl::compute3DCentroid(*segment_cloud, centroid);
@@ -345,11 +357,39 @@ std::map<uint32_t, Eigen::Vector4f> PCLProcessor::computeCentroids(
                  label, centroid[0], centroid[1], centroid[2], segment_cloud->points.size());
     }
 
+    // Find the centroid closest to the origin in the XY plane
+    bool label_selected = false;
+    double min_dist_sq = std::numeric_limits<double>::max();
+    Eigen::Vector4f selected_centroid; // To store the selected centroid coords
+
+    for (const auto& centroid_pair : centroids) {
+        uint32_t label = centroid_pair.first;
+        const Eigen::Vector4f& centroid = centroid_pair.second;
+        double dist_sq = centroid[0] * centroid[0] + centroid[1] * centroid[1]; // XY distance squared
+
+        if (dist_sq < min_dist_sq) {
+            min_dist_sq = dist_sq;
+            selected_label_out = label;
+            selected_centroid = centroid;
+            label_selected = true;
+        }
+    }
+
+    if (label_selected) {
+        ROS_INFO("Selected segment: %u (XY distance: %.3f)", selected_label_out, std::sqrt(min_dist_sq));
+    } else {
+         ROS_WARN("Could not select a closest segment (centroids map was empty or logic error?).");
+         // This case should ideally be caught by the initial segments.empty() check
+    }
+
     // Visualize centroids with marker ROS messages
     visualization_msgs::MarkerArray marker_array;
     int id = 0;
 
     for (const auto& centroid_pair : centroids) {
+        uint32_t label = centroid_pair.first;
+        const Eigen::Vector4f& centroid = centroid_pair.second;
+
         visualization_msgs::Marker marker;
         marker.header.frame_id = segmented_cloud->header.frame_id;
         marker.header.stamp = ros::Time::now();
@@ -368,20 +408,26 @@ std::map<uint32_t, Eigen::Vector4f> PCLProcessor::computeCentroids(
         marker.scale.y = 0.05;
         marker.scale.z = 0.05;
         
-        // Color (RGBA)
-        marker.color.r = 1.0;
-        marker.color.g = 0.0;
-        marker.color.b = 0.0;
+        // Color (RGBA) - Red by default, Green if selected
+        if (label_selected && label == selected_label_out) {
+            marker.color.r = 0.0; // Green for selected
+            marker.color.g = 1.0;
+            marker.color.b = 0.0;
+        } else {
+            marker.color.r = 1.0; // Red for others
+            marker.color.g = 0.0;
+            marker.color.b = 0.0;
+        }
         marker.color.a = 1.0;
-        
+
         marker.lifetime = ros::Duration(); // Forever
-        
+
         marker_array.markers.push_back(marker);
     }
 
     centroid_marker_pub_.publish(marker_array);
     
-    return centroids;
+    return label_selected;
 }
 
 void PCLProcessor::processCloud(const sensor_msgs::PointCloud2ConstPtr& cloud_msg) {
@@ -395,8 +441,15 @@ void PCLProcessor::processCloud(const sensor_msgs::PointCloud2ConstPtr& cloud_ms
     cloud_filtered = filterDepth(cloud_filtered);
 
     auto segmented_cloud = segmentLCCP(cloud_filtered);
+
+    // Apply planar filtering
     auto segmented_cloud_filtered = filterPlanarSegments(segmented_cloud);
-    auto segment_centroids = computeCentroids(segmented_cloud_filtered);
+
+    // Compute centroids and find the selected segment label
+    uint32_t selected_label; // Variable to hold the result
+    auto label_selected = computeCentroids(segmented_cloud_filtered, selected_label);
+
+    // Color the filtered cloud (containing potentially multiple segments)
     auto colored_cloud = colorSegments(segmented_cloud_filtered);
 
     sensor_msgs::PointCloud2 output;

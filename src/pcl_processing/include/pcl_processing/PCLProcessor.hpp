@@ -7,7 +7,6 @@
 #include <pcl/segmentation/lccp_segmentation.h>
 #include <map>
 #include <vector>
-
 #include "PCLProcessorConfig.hpp"
 
 class PCLProcessor {
@@ -47,8 +46,9 @@ private:
     pcl::PointCloud<pcl::PointXYZL>::Ptr filterPlanarSegments(
         const pcl::PointCloud<pcl::PointXYZL>::Ptr& labeled_cloud);
         
-    std::map<uint32_t, Eigen::Vector4f> computeCentroids(
-        const pcl::PointCloud<pcl::PointXYZL>::Ptr& labeled_cloud);
+    bool computeCentroids(
+        const pcl::PointCloud<pcl::PointXYZL>::Ptr& labeled_cloud,
+        uint32_t& selected_label_out);
 
     pcl::PointCloud<pcl::PointXYZRGB>::Ptr colorSegments(
         const pcl::PointCloud<pcl::PointXYZL>::Ptr&);
