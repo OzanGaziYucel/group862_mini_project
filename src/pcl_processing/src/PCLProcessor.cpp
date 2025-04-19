@@ -1042,231 +1042,244 @@ PCLProcessor::PrimitiveFitResult PCLProcessor::fitBox(
 
     const size_t original_segment_size = segment_cloud->points.size();
     pcl::PointCloud<pcl::PointXYZL>::Ptr remaining_cloud(new pcl::PointCloud<pcl::PointXYZL>(*segment_cloud));
-
-    pcl::PointIndices::Ptr inliers_plane1(new pcl::PointIndices);
-    pcl::ModelCoefficients::Ptr coefficients_plane1(new pcl::ModelCoefficients);
-    pcl::PointCloud<pcl::PointXYZL>::Ptr cloud_plane1(new pcl::PointCloud<pcl::PointXYZL>);
-
-    pcl::PointIndices::Ptr inliers_plane2(new pcl::PointIndices);
-    pcl::ModelCoefficients::Ptr coefficients_plane2(new pcl::ModelCoefficients);
-    pcl::PointCloud<pcl::PointXYZL>::Ptr cloud_plane2(new pcl::PointCloud<pcl::PointXYZL>);
-
-    pcl::ExtractIndices<pcl::PointXYZL> extract;
-    pcl::SACSegmentation<pcl::PointXYZL> seg_plane;
-    seg_plane.setOptimizeCoefficients(true);
-    seg_plane.setMethodType(pcl::SAC_RANSAC);
-    seg_plane.setDistanceThreshold(config_.primitive_distance_threshold);
-    seg_plane.setMaxIterations(1000);
-
-    bool plane1_found = false;
-    bool plane2_found = false;
-    size_t plane1_inliers_count = 0;
-    size_t plane2_inliers_count = 0;
-
-    // --- Fit First Plane ---
-    seg_plane.setModelType(pcl::SACMODEL_PLANE);
-    seg_plane.setInputCloud(remaining_cloud);
-    seg_plane.segment(*inliers_plane1, *coefficients_plane1);
-
-    if (!inliers_plane1->indices.empty()) {
-        plane1_found = true;
-        plane1_inliers_count = inliers_plane1->indices.size();
-        extract.setInputCloud(remaining_cloud);
-        extract.setIndices(inliers_plane1);
-        extract.setNegative(false);
-        extract.filter(*cloud_plane1);
-        extract.setNegative(true);
-        extract.filter(*remaining_cloud); // Modify remaining_cloud
-        ROS_INFO("Box fit: Found first plane with %zu inliers.", plane1_inliers_count);
-
-        // --- Fit Second Perpendicular Plane ---
-        if (remaining_cloud->points.size() >= 3) {
-            seg_plane.setInputCloud(remaining_cloud);
+    std::vector<pcl::ModelCoefficients::Ptr> plane_coefficients;
+    std::vector<pcl::PointCloud<pcl::PointXYZL>::Ptr> plane_clouds;
+    
+    // Keep fitting planes until we reach 70% inliers or can't find more planes
+    float total_inlier_percentage = 0.0f;
+    size_t total_inliers = 0;
+    
+    while (total_inlier_percentage < config_.min_primitive_inlier_percentage && 
+           remaining_cloud->size() >= 3 && 
+           plane_coefficients.size() < 3) {
+           
+        pcl::PointIndices::Ptr inliers(new pcl::PointIndices);
+        pcl::ModelCoefficients::Ptr coefficients(new pcl::ModelCoefficients);
+        pcl::SACSegmentation<pcl::PointXYZL> seg_plane;
+        
+        // Setup RANSAC for plane detection
+        seg_plane.setOptimizeCoefficients(true);
+        seg_plane.setModelType(pcl::SACMODEL_PLANE);
+        seg_plane.setMethodType(pcl::SAC_RANSAC);
+        seg_plane.setDistanceThreshold(config_.primitive_distance_threshold);
+        seg_plane.setMaxIterations(1000);
+        
+        if (plane_coefficients.size() >= 1) {
+            // If we have at least one plane, look for perpendicular planes
             seg_plane.setModelType(pcl::SACMODEL_PERPENDICULAR_PLANE);
-            Eigen::Vector3f axis(coefficients_plane1->values[0], coefficients_plane1->values[1], coefficients_plane1->values[2]);
-            seg_plane.setAxis(axis);
-            seg_plane.setEpsAngle(pcl::deg2rad(15.0)); // Angle tolerance
-            seg_plane.segment(*inliers_plane2, *coefficients_plane2);
-
-            if (!inliers_plane2->indices.empty()) {
-                plane2_found = true;
-                plane2_inliers_count = inliers_plane2->indices.size();
-                extract.setInputCloud(remaining_cloud); // Use the already filtered remaining_cloud
-                extract.setIndices(inliers_plane2);
-                extract.setNegative(false);
-                extract.filter(*cloud_plane2);
-                ROS_INFO("Box fit: Found second perpendicular plane with %zu inliers.", plane2_inliers_count);
-            } else {
-                ROS_INFO("Box fit: Could not find a second perpendicular plane.");
-            }
-        } else {
-             ROS_INFO("Box fit: Not enough remaining points (%zu) to search for second plane.", remaining_cloud->points.size());
+            Eigen::Vector3f normal(plane_coefficients[0]->values[0], 
+                                  plane_coefficients[0]->values[1], 
+                                  plane_coefficients[0]->values[2]);
+            seg_plane.setAxis(normal);
+            seg_plane.setEpsAngle(pcl::deg2rad(15.0));
         }
-    } else {
-         ROS_INFO("Box fit: Could not find the first plane.");
+        
+        seg_plane.setInputCloud(remaining_cloud);
+        seg_plane.segment(*inliers, *coefficients);
+        
+        if (inliers->indices.empty()) {
+            break; // No more planes found
+        }
+        
+        // Extract the plane and add to our collection
+        pcl::PointCloud<pcl::PointXYZL>::Ptr cloud_plane(new pcl::PointCloud<pcl::PointXYZL>());
+        pcl::ExtractIndices<pcl::PointXYZL> extract;
+        extract.setInputCloud(remaining_cloud);
+        extract.setIndices(inliers);
+        extract.setNegative(false);
+        extract.filter(*cloud_plane);
+        
+        // Add this plane to our collections
+        plane_coefficients.push_back(coefficients);
+        plane_clouds.push_back(cloud_plane);
+        
+        // Update inlier counts
+        total_inliers += inliers->indices.size();
+        total_inlier_percentage = static_cast<float>(total_inliers) / original_segment_size;
+        
+        // Remove these points from the remaining cloud
+        extract.setNegative(true);
+        extract.filter(*remaining_cloud);
+        
+        ROS_INFO("Box fit: Found plane %zu with %zu inliers. Total: %.2f%%", 
+                plane_coefficients.size(), inliers->indices.size(), 
+                total_inlier_percentage * 100.0f);
+    }
+    
+    // If no planes were found at all
+    if (plane_coefficients.empty()) {
+        ROS_INFO("Box fit: Could not find any planes.");
+        return result;
+    }
+    
+    // Use PCA on the first plane to determine the box orientation
+    pcl::PCA<pcl::PointXYZL> pca;
+    pca.setInputCloud(plane_clouds[0]);
+    Eigen::Matrix3f eigenvectors = pca.getEigenVectors();
+    Eigen::Vector4f pca_mean_4d = pca.getMean();
+    Eigen::Vector3f pca_mean(pca_mean_4d[0], pca_mean_4d[1], pca_mean_4d[2]);
+    
+    // First two principal components are the axes of the plane
+    Eigen::Vector3f axis1 = eigenvectors.col(0);
+    Eigen::Vector3f axis2 = eigenvectors.col(1);
+    
+    // Get the plane normal from the RANSAC result
+    Eigen::Vector3f plane_normal(plane_coefficients[0]->values[0], 
+                               plane_coefficients[0]->values[1], 
+                               plane_coefficients[0]->values[2]);
+    plane_normal.normalize();
+    
+    // Ensure our coordinate system is right-handed
+    if (axis1.cross(axis2).dot(plane_normal) < 0) {
+        axis2 = -axis2;
+    }
+    
+    // Third axis is perpendicular to the first two
+    Eigen::Vector3f axis3 = axis1.cross(axis2);
+    
+    // Calculate width, height, and depth by projecting all points
+    std::vector<float> proj1_values, proj2_values, proj3_values;
+    proj1_values.reserve(segment_cloud->points.size());
+    proj2_values.reserve(segment_cloud->points.size());
+    proj3_values.reserve(segment_cloud->points.size());
+
+    // Collect all projections
+    for (const auto& pt : segment_cloud->points) {
+        Eigen::Vector3f point = pt.getVector3fMap();
+        Eigen::Vector3f centered_pt = point - pca_mean;
+        
+        proj1_values.push_back(centered_pt.dot(axis1));
+        proj2_values.push_back(centered_pt.dot(axis2));
+        proj3_values.push_back(centered_pt.dot(axis3));
     }
 
-    // // --- Check Total Inlier Percentage ---
-    // size_t total_explained_points = plane1_inliers_count + plane2_inliers_count;
-    // result.inlier_percentage = static_cast<double>(total_explained_points) / original_segment_size;
-    // ROS_INFO("Box fit (plane method): Total inliers = %zu (%.2f%% of original %zu)",
-    //          total_explained_points, result.inlier_percentage * 100.0, original_segment_size);
+    // Sort the projection values
+    std::sort(proj1_values.begin(), proj1_values.end());
+    std::sort(proj2_values.begin(), proj2_values.end());
+    std::sort(proj3_values.begin(), proj3_values.end());
 
-    // --- Proceed if FIRST plane was found (required for PCA) ---
-    if (plane1_found) { // Changed condition: Only need plane1 to attempt marker creation
+    // Use 5th and 95th percentiles instead of min/max to eliminate outliers
+    const float percentile_low = 0.05f;  // 5th percentile
+    const float percentile_high = 0.95f; // 95th percentile
 
-        // --- PCA on First Plane ---
-        pcl::PCA<pcl::PointXYZL> pca;
-        pca.setInputCloud(cloud_plane1);
-        Eigen::Matrix3f eigenvectors = pca.getEigenVectors();
-        Eigen::Vector4f pca_mean_4d = pca.getMean();
-        Eigen::Vector3f pca_mean(pca_mean_4d[0], pca_mean_4d[1], pca_mean_4d[2]);
-        Eigen::Vector3f axis1 = eigenvectors.col(0);
-        Eigen::Vector3f axis2 = eigenvectors.col(1);
-        Eigen::Vector3f axis3;
-        Eigen::Vector3f plane1_normal(coefficients_plane1->values[0], coefficients_plane1->values[1], coefficients_plane1->values[2]);
-        plane1_normal.normalize();
-        if (axis1.cross(axis2).dot(plane1_normal) < 0) {
-            axis2 = -axis2;
+    size_t idx_low1 = static_cast<size_t>(proj1_values.size() * percentile_low);
+    size_t idx_high1 = static_cast<size_t>(proj1_values.size() * percentile_high);
+    float min_proj1 = proj1_values[idx_low1];
+    float max_proj1 = proj1_values[idx_high1];
+
+    size_t idx_low2 = static_cast<size_t>(proj2_values.size() * percentile_low);
+    size_t idx_high2 = static_cast<size_t>(proj2_values.size() * percentile_high);
+    float min_proj2 = proj2_values[idx_low2];
+    float max_proj2 = proj2_values[idx_high2];
+
+    size_t idx_low3 = static_cast<size_t>(proj3_values.size() * percentile_low);
+    size_t idx_high3 = static_cast<size_t>(proj3_values.size() * percentile_high);
+    float min_proj3 = proj3_values[idx_low3];
+    float max_proj3 = proj3_values[idx_high3];
+
+    // Calculate dimensions using the percentile-filtered values
+    float width = max_proj1 - min_proj1;
+    float height = max_proj2 - min_proj2;
+    float depth = max_proj3 - min_proj3;
+
+    ROS_INFO("Box fit: Using %dth and %dth percentiles for dimensions", 
+            static_cast<int>(percentile_low * 100), 
+            static_cast<int>(percentile_high * 100));
+
+    // Ensure minimum dimensions (as before)
+    if (depth < 0.005f) {
+        depth = 0.005f;
+        min_proj3 = -depth / 2.0f;
+        max_proj3 = depth / 2.0f;
+    }
+    
+    // Calculate the geometric center based on the min/max projections
+    Eigen::Vector3f geometric_center_world = pca_mean + 
+                                    axis1 * (min_proj1 + width/2.0f) +
+                                    axis2 * (min_proj2 + height/2.0f) +
+                                    axis3 * (min_proj3 + depth/2.0f);
+    
+    // Create the rotation matrix and quaternion
+    Eigen::Matrix3f rotation_matrix;
+    rotation_matrix.col(0) = axis1;
+    rotation_matrix.col(1) = axis2;
+    rotation_matrix.col(2) = axis3;
+    Eigen::Quaternionf obb_quat_f(rotation_matrix);
+    obb_quat_f.normalize();
+    
+    ROS_INFO("Box fit: Center=(%.3f,%.3f,%.3f) Dims=(%.3f,%.3f,%.3f)",
+            geometric_center_world[0], geometric_center_world[1], geometric_center_world[2],
+            width, height, depth);
+    
+    // Calculate inliers for all six faces of the box
+    std::vector<int> all_box_inliers;
+    
+    // Check each point against all faces
+    for (size_t i = 0; i < segment_cloud->points.size(); ++i) {
+        Eigen::Vector3f point(segment_cloud->points[i].x, 
+                             segment_cloud->points[i].y, 
+                             segment_cloud->points[i].z);
+        
+        // Vector from box center to point
+        Eigen::Vector3f center_to_point = point - geometric_center_world;
+        
+        // Calculate projections along each axis once
+        float proj1 = center_to_point.dot(axis1);
+        float proj2 = center_to_point.dot(axis2);
+        float proj3 = center_to_point.dot(axis3);
+        
+        // Check if point is near X-faces while within Y and Z bounds
+        bool near_x_face = std::abs(std::abs(proj1) - width/2.0f) <= config_.primitive_distance_threshold &&
+                          std::abs(proj2) <= height/2.0f && 
+                          std::abs(proj3) <= depth/2.0f;
+        
+        // Check if point is near Y-faces while within X and Z bounds
+        bool near_y_face = std::abs(std::abs(proj2) - height/2.0f) <= config_.primitive_distance_threshold && 
+                          std::abs(proj1) <= width/2.0f && 
+                          std::abs(proj3) <= depth/2.0f;
+        
+        // Check if point is near Z-faces while within X and Y bounds
+        bool near_z_face = std::abs(std::abs(proj3) - depth/2.0f) <= config_.primitive_distance_threshold && 
+                          std::abs(proj1) <= width/2.0f && 
+                          std::abs(proj2) <= height/2.0f;
+        
+        // Add point as inlier if it's near any face
+        if (near_x_face || near_y_face || near_z_face) {
+            all_box_inliers.push_back(i);
         }
-        axis3 = axis1.cross(axis2);
+    }
+    
+    // Remove duplicates (a point might be counted for multiple faces)
+    std::sort(all_box_inliers.begin(), all_box_inliers.end());
+    all_box_inliers.erase(std::unique(all_box_inliers.begin(), all_box_inliers.end()), all_box_inliers.end());
+    
+    // Calculate complete inlier percentage
+    result.inlier_percentage = static_cast<double>(all_box_inliers.size()) / original_segment_size;
+    
+    ROS_INFO("Box fit (complete): Total inliers = %zu (%.2f%% of original %zu)",
+            all_box_inliers.size(), result.inlier_percentage * 100.0, original_segment_size);
+    
+    // --- Populate Marker ---
+    result.marker.action = visualization_msgs::Marker::ADD; // Set action to ADD
+    result.marker.pose.position.x = geometric_center_world[0];
+    result.marker.pose.position.y = geometric_center_world[1];
+    result.marker.pose.position.z = geometric_center_world[2];
+    result.marker.pose.orientation = tf2::toMsg(obb_quat_f.cast<double>());
+    result.marker.scale.x = std::max(width, 0.001f);  // Ensure positive
+    result.marker.scale.y = std::max(height, 0.001f); // Ensure positive
+    result.marker.scale.z = std::max(depth, 0.001f);  // Ensure positive
+    result.marker.color.r = 0.0f; result.marker.color.g = 0.0f; result.marker.color.b = 1.0f; result.marker.color.a = 0.5f; // Blue (default for box)
+    result.marker.lifetime = ros::Duration(); // Use configured lifetime
 
-        // --- Calculate Width and Height ---
-        float min_proj1 = std::numeric_limits<float>::max(), max_proj1 = std::numeric_limits<float>::lowest();
-        float min_proj2 = std::numeric_limits<float>::max(), max_proj2 = std::numeric_limits<float>::lowest();
-        for (const auto& pt : cloud_plane1->points) {
-            Eigen::Vector3f centered_pt = pt.getVector3fMap() - pca_mean;
-            float proj1 = centered_pt.dot(axis1);
-            float proj2 = centered_pt.dot(axis2);
-            min_proj1 = std::min(min_proj1, proj1); max_proj1 = std::max(max_proj1, proj1);
-            min_proj2 = std::min(min_proj2, proj2); max_proj2 = std::max(max_proj2, proj2);
-        }
-        float width = max_proj1 - min_proj1;
-        float height = max_proj2 - min_proj2;
-        Eigen::Vector3f center_plane = pca_mean + axis1 * (min_proj1 + width / 2.0f) + axis2 * (min_proj2 + height / 2.0f);
-
-        // --- Calculate Depth ---
-        float depth = 0.005f; // Default depth
-        float min_proj3 = -depth / 2.0f; // Default projection range
-        float max_proj3 = depth / 2.0f;
-        if (plane2_found && !cloud_plane2->points.empty()) {
-            float current_min_proj3 = std::numeric_limits<float>::max();
-            float current_max_proj3 = std::numeric_limits<float>::lowest();
-            for (const auto& pt : cloud_plane2->points) {
-                float proj3 = (pt.getVector3fMap() - center_plane).dot(axis3);
-                current_min_proj3 = std::min(current_min_proj3, proj3);
-                current_max_proj3 = std::max(current_max_proj3, proj3);
-            }
-            if (current_max_proj3 > current_min_proj3) {
-                depth = current_max_proj3 - current_min_proj3;
-                min_proj3 = current_min_proj3; // Update projection range
-                max_proj3 = current_max_proj3;
-                ROS_INFO("Box fit: Depth calculated from second plane: %.3f", depth);
-            } else {
-            ROS_WARN("Box fit: Second plane projection resulted in non-positive depth. Using default %.3f.", depth);
-            }
-        } else {
-            ROS_INFO("Box fit: Second plane not found or empty. Using default depth %.3f.", depth);
-        }
-
-        // --- Calculate Final Center and Orientation ---
-        Eigen::Vector3f geometric_center_world = center_plane + axis3 * (min_proj3 + depth / 2.0f);
-        Eigen::Matrix3f rotation_matrix;
-        rotation_matrix.col(0) = axis1; rotation_matrix.col(1) = axis2; rotation_matrix.col(2) = axis3;
-        Eigen::Quaternionf obb_quat_f(rotation_matrix);
-        obb_quat_f.normalize();
-
-        ROS_INFO("Box fit (plane method): Center: %.3f,%.3f,%.3f Dims: %.3f,%.3f,%.3f",
-                geometric_center_world[0], geometric_center_world[1], geometric_center_world[2],
-                width, height, depth);
-
-        // Calculate inliers for all six faces of the box
-        std::vector<int> all_box_inliers;
-                
-        // Define the six face planes in terms of normal and distance from center
-        struct BoxFace {
-            Eigen::Vector3f normal;
-            float distance;
-        };
-
-        BoxFace faces[6] = {
-            {axis1, width/2.0f},  // +X face
-            {-axis1, width/2.0f}, // -X face
-            {axis2, height/2.0f}, // +Y face
-            {-axis2, height/2.0f},// -Y face
-            {axis3, depth/2.0f},  // +Z face
-            {-axis3, depth/2.0f}  // -Z face
-        };
-
-        // Check all points against all six faces
-        for (size_t i = 0; i < segment_cloud->points.size(); ++i) {
-            Eigen::Vector3f point(segment_cloud->points[i].x, 
-                                segment_cloud->points[i].y,
-                                segment_cloud->points[i].z);
-            
-            // Vector from box center to point
-            Eigen::Vector3f center_to_point = point - geometric_center_world;
-            
-            // Check each face
-            for (int f = 0; f < 6; ++f) {
-                // Project point onto face normal
-                float dist_to_plane = std::abs(center_to_point.dot(faces[f].normal)) - faces[f].distance;
-                
-                // If point is within threshold of this face
-                if (std::abs(dist_to_plane) <= config_.primitive_distance_threshold) {
-                    // Check if point is within box bounds in other dimensions
-                    float proj1 = center_to_point.dot(axis1);
-                    float proj2 = center_to_point.dot(axis2);
-                    float proj3 = center_to_point.dot(axis3);
-                    
-                    bool within_bounds = 
-                        (std::abs(proj1) <= width/2.0f + config_.primitive_distance_threshold) &&
-                        (std::abs(proj2) <= height/2.0f + config_.primitive_distance_threshold) &&
-                        (std::abs(proj3) <= depth/2.0f + config_.primitive_distance_threshold);
-                    
-                    if (within_bounds) {
-                        all_box_inliers.push_back(i);
-                        break; // Point is an inlier, no need to check other faces
-                    }
-                }
-            }
-        }
-
-        // Remove duplicates (a point might be counted for multiple faces)
-        std::sort(all_box_inliers.begin(), all_box_inliers.end());
-        all_box_inliers.erase(std::unique(all_box_inliers.begin(), all_box_inliers.end()), all_box_inliers.end());
-
-        // Calculate complete inlier percentage
-        result.inlier_percentage = static_cast<double>(all_box_inliers.size()) / original_segment_size;
-
-        ROS_INFO("Box fit (complete): Total inliers = %zu (%.2f%% of original %zu)",
-                all_box_inliers.size(), result.inlier_percentage * 100.0, original_segment_size);
-
-        // --- Populate Marker (Always if plane1 found) ---
-        result.marker.action = visualization_msgs::Marker::ADD; // Set action to ADD
-        result.marker.pose.position.x = geometric_center_world[0];
-        result.marker.pose.position.y = geometric_center_world[1];
-        result.marker.pose.position.z = geometric_center_world[2];
-        result.marker.pose.orientation = tf2::toMsg(obb_quat_f.cast<double>());
-        result.marker.scale.x = std::max(width, 0.001f);  // Ensure positive
-        result.marker.scale.y = std::max(height, 0.001f); // Ensure positive
-        result.marker.scale.z = std::max(depth, 0.001f);  // Ensure positive
-        result.marker.color.r = 0.0f; result.marker.color.g = 0.0f; result.marker.color.b = 1.0f; result.marker.color.a = 0.5f; // Blue (default for box)
-        result.marker.lifetime = ros::Duration(); // Use configured lifetime
-
-        // --- Set success flag based on threshold ---
-        if (result.inlier_percentage >= config_.min_primitive_inlier_percentage) {
-            result.success = true;
-        } else {
-            ROS_INFO("Box fit (plane method): Explained points (%.2f%%) below threshold (%.2f%%). Still publishing marker.",
-                    result.inlier_percentage * 100.0, config_.min_primitive_inlier_percentage * 100.0);
-            result.success = false; // Explicitly false
-        }
-
+    // --- Set success flag based on threshold ---
+    if (result.inlier_percentage >= config_.min_primitive_inlier_percentage) {
+        result.success = true;
     } else {
-        ROS_INFO("Box fit (plane method): Failed (Plane 1 not found). Cannot create marker.");
+        ROS_INFO("Box fit: Inlier percentage (%.2f%%) below threshold (%.2f%%). Still publishing marker.",
+                result.inlier_percentage * 100.0, config_.min_primitive_inlier_percentage * 100.0);
         result.success = false;
     }
+    
     return result;
 }
 
