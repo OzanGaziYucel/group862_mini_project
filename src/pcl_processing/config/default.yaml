@@ -29,7 +29,7 @@ k_factor: 0.0
 min_segment_size: 20
 use_smoothness_check: true
 smoothness_threshold: 1
-small_segment_threshold_percent: 0.2
+small_segment_threshold_percent: 1.0
 use_single_camera_transform: true
 
 # Planar segment filtering parameters

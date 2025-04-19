@@ -721,21 +721,39 @@ std::map<uint32_t, pcl::PointCloud<pcl::PointXYZL>::Ptr> PCLProcessor::filterSma
     std::map<uint32_t, pcl::PointCloud<pcl::PointXYZL>::Ptr> filtered_map;
     size_t original_segment_count = segment_map.size();
     size_t points_in_removed_segments = 0;
+    size_t total_points_before_filtering = 0;
 
     ROS_DEBUG("Filtering small segments from map. Input map has %zu segments.", original_segment_count);
 
-    // Use the same minimum segment size threshold as LCCP for consistency,
-    // or introduce a new config parameter if different behavior is desired.
-    size_t min_size_threshold = config_.min_segment_size;
-    ROS_DEBUG("Using minimum segment size threshold: %zu", min_size_threshold);
+    // --- Calculate total points across all segments ---
+    for (const auto& pair : segment_map) {
+        if (pair.second) {
+            total_points_before_filtering += pair.second->size();
+        }
+    }
 
+    if (total_points_before_filtering == 0) {
+        ROS_WARN("Cannot filter small segments: Total points in input map is zero.");
+        return segment_map; // Return original map (which is likely empty)
+    }
+
+    // --- Calculate the minimum size threshold based on percentage ---
+    // Ensure percentage is between 0 and 100
+    float threshold_percent = std::max(0.0f, std::min(100.0f, config_.small_segment_threshold_percent));
+    size_t min_size_threshold = static_cast<size_t>(
+        std::ceil(total_points_before_filtering * (threshold_percent / 100.0f))
+    );
+
+    ROS_DEBUG("Total points before filtering: %zu. Using minimum segment size threshold: %zu (%.2f%% of total)",
+             total_points_before_filtering, min_size_threshold, threshold_percent);
+
+    // --- Filter segments based on the calculated threshold ---
     for (const auto& pair : segment_map) {
         const uint32_t& label = pair.first;
         const pcl::PointCloud<pcl::PointXYZL>::Ptr& cloud = pair.second;
 
         if (cloud && cloud->size() >= min_size_threshold) {
-            // Keep this segment, add it to the filtered map.
-            // The PointCloud::Ptr is copied, preserving the cloud and its header.
+            // Keep this segment
             filtered_map[label] = cloud;
         } else {
             // Segment is too small (or cloud pointer is null), filter it out.
