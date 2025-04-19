@@ -46,6 +46,7 @@ struct PCLProcessorConfig {
 
     // Primitive Fitting parameters
     bool publish_primitive_marker;
+    bool publish_unselected_primitive_markers;
     std::string primitive_marker_topic;
     float primitive_distance_threshold;
     float min_primitive_inlier_percentage;

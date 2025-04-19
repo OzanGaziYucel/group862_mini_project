@@ -37,6 +37,7 @@ void loadConfig(ros::NodeHandle& nh, PCLProcessorConfig& config) {
     nh.param<std::string>("filtered_cloud_topic", config.filtered_cloud_topic, "/filtered_segments_cloud");
     // Load primitive fitting parameters
     nh.param<bool>("publish_primitive_marker", config.publish_primitive_marker, true);
+    nh.param<bool>("publish_unselected_primitive_markers", config.publish_unselected_primitive_markers, true);
     nh.param<std::string>("primitive_marker_topic", config.primitive_marker_topic, "/primitive_marker");
     nh.param<float>("primitive_distance_threshold", config.primitive_distance_threshold, 0.01f); // e.g., 1 cm
     nh.param<float>("min_primitive_inlier_percentage", config.min_primitive_inlier_percentage, 0.75f); // e.g., 75%

@@ -21,7 +21,8 @@ private:
     ros::Publisher pub_;
     ros::Publisher supervoxel_pub_;
     ros::Publisher centroid_marker_pub_;
-    ros::Publisher primitive_marker_pub_;
+    // ros::Publisher primitive_marker_pub_;
+    ros::Publisher primitive_marker_array_pub_;
     ros::Publisher filtered_pub_;
     // Header for the last centroid message, needed for clearing previous markers
     std_msgs::Header last_centroid_header_;
@@ -127,7 +128,11 @@ private:
         const std_msgs::Header& header);
     
     // Helper for visualization
-    void clearPrimitiveMarker(const std_msgs::Header& header);
-    void publishPrimitiveMarker(const visualization_msgs::Marker& marker);
-    
+    void clearPrimitiveMarkers(const std_msgs::Header& header);
+    void publishPrimitiveMarkers(
+        const PrimitiveFitResult& sphere_result,
+        const PrimitiveFitResult& cylinder_result,
+        const PrimitiveFitResult& box_result,
+        int best_type,
+        const std_msgs::Header& header);
 };

@@ -11,7 +11,8 @@ PCLProcessor::PCLProcessor(ros::NodeHandle& nh, const PCLProcessorConfig& config
     pub_ = nh.advertise<sensor_msgs::PointCloud2>(config_.output_topic, 1);
     supervoxel_pub_ = nh.advertise<sensor_msgs::PointCloud2>(config_.supervoxel_cloud_topic, 1);
     centroid_marker_pub_ = nh.advertise<visualization_msgs::MarkerArray>(config_.centroid_marker_topic, 1);
-    primitive_marker_pub_ = nh.advertise<visualization_msgs::Marker>(config_.primitive_marker_topic, 1);
+    // primitive_marker_pub_ = nh.advertise<visualization_msgs::Marker>(config_.primitive_marker_topic, 1);
+    primitive_marker_array_pub_ = nh.advertise<visualization_msgs::MarkerArray>(config_.primitive_marker_topic, 1);
     filtered_pub_ = nh.advertise<sensor_msgs::PointCloud2>(config_.filtered_cloud_topic, 1);
 }
 
@@ -768,14 +769,14 @@ void PCLProcessor::fitPrimitiveToTarget(
 
     if (!segment_cloud || segment_cloud->points.empty()) {
         ROS_WARN("Cannot fit primitive to empty segment cloud.");
-        clearPrimitiveMarker(header); // Clear any previous marker
+        clearPrimitiveMarkers(header); // Clear any previous marker
         return;
     }
 
     ROS_INFO("Attempting to fit primitives to segment with %zu points.", segment_cloud->points.size());
 
     // 1. Clear previous marker (if publishing enabled)
-    clearPrimitiveMarker(header);
+    clearPrimitiveMarkers(header);
 
     // 2. Fit Sphere
     PrimitiveFitResult sphere_result = fitSphere(segment_cloud, header);
@@ -788,26 +789,35 @@ void PCLProcessor::fitPrimitiveToTarget(
 
     // 5. Select Best Fit
     PrimitiveFitResult best_result;
-    best_result.inlier_percentage = 0.0; // Initialize best percentage
+    best_result.inlier_percentage = -1.0;
+    int best_type = -1; // 0: Sphere, 1: Cylinder, 2: Box
 
     if (sphere_result.success && sphere_result.inlier_percentage > best_result.inlier_percentage) {
         best_result = sphere_result;
+        best_type = 0;
     }
     if (cylinder_result.success && cylinder_result.inlier_percentage > best_result.inlier_percentage) {
         best_result = cylinder_result;
+        best_type = 1;
     }
     if (box_result.success && box_result.inlier_percentage > best_result.inlier_percentage) {
         best_result = box_result;
+        best_type = 2;
     }
 
-    // 6. Publish Best Fitting Primitive (if found and publishing enabled)
-    if (best_result.success) {
-        const char* type_str = (best_result.type == 0 ? "Sphere" : (best_result.type == 1 ? "Cylinder" : "Box"));
-        ROS_INFO("Selected best primitive: %s (Inlier %%: %.2f)", type_str, best_result.inlier_percentage * 100.0);
-        publishPrimitiveMarker(best_result.marker);
+    // 6. Publish results
+    publishPrimitiveMarkers(sphere_result, cylinder_result, box_result, best_type, header);
+
+    // Log the best result
+    if (best_type != -1) {
+        std::string primitive_type_str = "Unknown";
+        if (best_type == 0) primitive_type_str = "Sphere";
+        else if (best_type == 1) primitive_type_str = "Cylinder";
+        else if (best_type == 2) primitive_type_str = "Box";
+        ROS_INFO("Selected best primitive: %s (Inlier %%: %.2f)",
+                 primitive_type_str.c_str(), best_result.inlier_percentage * 100.0);
     } else {
-        ROS_INFO("No suitable primitive could be fitted to the selected segment.");
-        // No marker to publish, and clear was already called.
+        ROS_INFO("No primitive fit met the minimum inlier threshold.");
     }
 }
 
@@ -817,6 +827,12 @@ PCLProcessor::PrimitiveFitResult PCLProcessor::fitSphere(
 
     PrimitiveFitResult result;
     result.type = 0; // Sphere
+    // Initialize marker basics
+    result.marker.header = header;
+    result.marker.ns = "primitive_fits"; // Use consistent namespace
+    result.marker.id = 0; // Will be overwritten later
+    result.marker.type = visualization_msgs::Marker::SPHERE;
+    result.marker.action = visualization_msgs::Marker::DELETE; // Default to delete
 
     if (segment_cloud->points.size() < 4) {
         ROS_DEBUG("Sphere fit skipped: Not enough points (%zu < 4).", segment_cloud->points.size());
@@ -837,30 +853,32 @@ PCLProcessor::PrimitiveFitResult PCLProcessor::fitSphere(
 
     if (!inliers->indices.empty() && coefficients->values.size() == 4) {
         result.inlier_percentage = static_cast<double>(inliers->indices.size()) / segment_cloud->points.size();
+        float radius = coefficients->values[3];
         ROS_INFO("Sphere fit: %.2f%% inliers (Coeffs: center=%.3f,%.3f,%.3f radius=%.3f)",
                  result.inlier_percentage * 100.0,
-                 coefficients->values[0], coefficients->values[1], coefficients->values[2], coefficients->values[3]);
+                 coefficients->values[0], coefficients->values[1], coefficients->values[2], radius);
 
+        // --- Populate Marker Details (Always if fit found) ---
+        result.marker.action = visualization_msgs::Marker::ADD; // Set action to ADD
+        result.marker.pose.position.x = coefficients->values[0];
+        result.marker.pose.position.y = coefficients->values[1];
+        result.marker.pose.position.z = coefficients->values[2];
+        result.marker.pose.orientation.w = 1.0; // Identity quaternion
+        result.marker.scale.x = result.marker.scale.y = result.marker.scale.z = std::max(radius * 2.0f, 0.001f); // Diameter, ensure positive
+        result.marker.color.r = 1.0f; result.marker.color.g = 0.0f; result.marker.color.b = 0.0f; result.marker.color.a = 0.5f; // Red (default for sphere)
+        result.marker.lifetime = ros::Duration(); // Use configured lifetime
+
+        // --- Set success flag based on threshold ---
         if (result.inlier_percentage >= config_.min_primitive_inlier_percentage) {
             result.success = true;
-            result.marker.header = header;
-            result.marker.ns = "fitted_primitive";
-            result.marker.id = 0;
-            result.marker.type = visualization_msgs::Marker::SPHERE;
-            result.marker.action = visualization_msgs::Marker::ADD;
-            result.marker.pose.position.x = coefficients->values[0];
-            result.marker.pose.position.y = coefficients->values[1];
-            result.marker.pose.position.z = coefficients->values[2];
-            result.marker.pose.orientation.w = 1.0;
-            result.marker.scale.x = result.marker.scale.y = result.marker.scale.z = coefficients->values[3] * 2.0; // Diameter
-            result.marker.color.r = 0.0; result.marker.color.g = 1.0; result.marker.color.b = 1.0; result.marker.color.a = 0.5; // Cyan
-            result.marker.lifetime = ros::Duration();
         } else {
-             ROS_INFO("Sphere fit: Inlier percentage (%.2f%%) below threshold (%.2f%%).",
+             ROS_INFO("Sphere fit: Inlier percentage (%.2f%%) below threshold (%.2f%%). Still publishing marker.",
                       result.inlier_percentage * 100.0, config_.min_primitive_inlier_percentage * 100.0);
+             result.success = false; // Explicitly false
         }
     } else {
         ROS_INFO("Sphere fit: Failed (no inliers or invalid coefficients).");
+        // result.marker.action remains DELETE
     }
     return result;
 }
@@ -871,10 +889,16 @@ PCLProcessor::PrimitiveFitResult PCLProcessor::fitCylinder(
 
     PrimitiveFitResult result;
     result.type = 1; // Cylinder
+    // Initialize marker basics
+    result.marker.header = header;
+    result.marker.ns = "primitive_fits"; // Use consistent namespace
+    result.marker.id = 1; // Will be overwritten later
+    result.marker.type = visualization_msgs::Marker::CYLINDER;
+    result.marker.action = visualization_msgs::Marker::DELETE; // Default to delete
 
-    if (segment_cloud->points.size() < 3) { // Need points for normals and fitting
+    if (segment_cloud->points.size() < 3) {
          ROS_DEBUG("Cylinder fit skipped: Not enough points (%zu < 3).", segment_cloud->points.size());
-        return result; // success = false
+        return result;
     }
 
     // --- Compute Normals ---
@@ -887,9 +911,9 @@ PCLProcessor::PrimitiveFitResult PCLProcessor::fitCylinder(
     ne.compute(*normals);
 
     if (normals->points.size() != segment_cloud->points.size()) {
-        ROS_WARN("Cylinder fit: Failed to compute normals correctly (%zu != %zu).",
-                 normals->points.size(), segment_cloud->points.size());
-        return result; // success = false
+         ROS_WARN("Cylinder fit: Failed to compute normals correctly (%zu != %zu).",
+                  normals->points.size(), segment_cloud->points.size());
+         return result;
     }
 
     // --- Fit Cylinder ---
@@ -909,49 +933,55 @@ PCLProcessor::PrimitiveFitResult PCLProcessor::fitCylinder(
 
     if (!inliers->indices.empty() && coefficients->values.size() == 7) {
         result.inlier_percentage = static_cast<double>(inliers->indices.size()) / segment_cloud->points.size();
+        float radius = coefficients->values[6];
         ROS_INFO("Cylinder fit: %.2f%% inliers (Coeffs: pt=%.3f,%.3f,%.3f dir=%.3f,%.3f,%.3f radius=%.3f)",
                  result.inlier_percentage * 100.0,
                  coefficients->values[0], coefficients->values[1], coefficients->values[2],
                  coefficients->values[3], coefficients->values[4], coefficients->values[5],
-                 coefficients->values[6]);
+                 radius);
 
-        if (result.inlier_percentage >= config_.min_primitive_inlier_percentage) {
-            result.success = true;
+        // --- Calculate Marker Pose and Scale (Always if fit found) ---
+        Eigen::Vector3d axis_dir(coefficients->values[3], coefficients->values[4], coefficients->values[5]);
+        axis_dir.normalize();
+        Eigen::Vector3d point_on_axis(coefficients->values[0], coefficients->values[1], coefficients->values[2]);
 
-            // --- Calculate Marker Pose and Scale ---
-            Eigen::Vector3d axis_dir(coefficients->values[3], coefficients->values[4], coefficients->values[5]);
-            axis_dir.normalize();
-            Eigen::Vector3d point_on_axis(coefficients->values[0], coefficients->values[1], coefficients->values[2]);
-
-            double min_proj = std::numeric_limits<double>::max();
-            double max_proj = std::numeric_limits<double>::lowest();
+        double min_proj = std::numeric_limits<double>::max();
+        double max_proj = std::numeric_limits<double>::lowest();
+        // Use segment_cloud, not just inliers, for projection bounds? Or just inliers? Let's use inliers.
+        if (!inliers->indices.empty()) { // Check inliers again before iterating
             for (int index : inliers->indices) {
                 Eigen::Vector3d point(segment_cloud->points[index].x, segment_cloud->points[index].y, segment_cloud->points[index].z);
                 double proj = (point - point_on_axis).dot(axis_dir);
                 min_proj = std::min(min_proj, proj);
                 max_proj = std::max(max_proj, proj);
             }
-            double height = max_proj - min_proj;
-            Eigen::Vector3d center = point_on_axis + axis_dir * (min_proj + height / 2.0);
-            Eigen::Quaterniond q = Eigen::Quaterniond::FromTwoVectors(Eigen::Vector3d::UnitZ(), axis_dir);
+        } else { // Should not happen if we are inside the outer if, but safety check
+            min_proj = 0; max_proj = 0;
+        }
 
-            // --- Populate Marker ---
-            result.marker.header = header;
-            result.marker.ns = "fitted_primitive";
-            result.marker.id = 0;
-            result.marker.type = visualization_msgs::Marker::CYLINDER;
-            result.marker.action = visualization_msgs::Marker::ADD;
-            result.marker.pose = tf2::toMsg(Eigen::Affine3d(q * Eigen::Translation3d(center)));
-            result.marker.scale.x = result.marker.scale.y = coefficients->values[6] * 2.0; // Diameter
-            result.marker.scale.z = height > 0 ? height : 0.01; // Ensure positive height
-            result.marker.color.r = 1.0; result.marker.color.g = 1.0; result.marker.color.b = 0.0; result.marker.color.a = 0.5; // Yellow
-            result.marker.lifetime = ros::Duration();
+        double height = (max_proj > min_proj) ? (max_proj - min_proj) : 0.01; // Ensure non-negative height
+        Eigen::Vector3d center = point_on_axis + axis_dir * (min_proj + height / 2.0);
+        Eigen::Quaterniond q = Eigen::Quaterniond::FromTwoVectors(Eigen::Vector3d::UnitZ(), axis_dir);
+
+        // --- Populate Marker ---
+        result.marker.action = visualization_msgs::Marker::ADD; // Set action to ADD
+        result.marker.pose = tf2::toMsg(Eigen::Affine3d(q * Eigen::Translation3d(center)));
+        result.marker.scale.x = result.marker.scale.y = std::max(radius * 2.0f, 0.001f); // Diameter, ensure positive
+        result.marker.scale.z = std::max(height, 0.001); // Ensure positive height
+        result.marker.color.r = 0.0f; result.marker.color.g = 1.0f; result.marker.color.b = 0.0f; result.marker.color.a = 0.5f; // Green (default for cylinder)
+        result.marker.lifetime = ros::Duration(); // Use configured lifetime
+
+        // --- Set success flag based on threshold ---
+        if (result.inlier_percentage >= config_.min_primitive_inlier_percentage) {
+            result.success = true;
         } else {
-             ROS_INFO("Cylinder fit: Inlier percentage (%.2f%%) below threshold (%.2f%%).",
+             ROS_INFO("Cylinder fit: Inlier percentage (%.2f%%) below threshold (%.2f%%). Still publishing marker.",
                       result.inlier_percentage * 100.0, config_.min_primitive_inlier_percentage * 100.0);
+             result.success = false; // Explicitly false
         }
     } else {
         ROS_INFO("Cylinder fit: Failed (no inliers or invalid coefficients).");
+         // result.marker.action remains DELETE
     }
     return result;
 }
@@ -962,10 +992,16 @@ PCLProcessor::PrimitiveFitResult PCLProcessor::fitBox(
 
     PrimitiveFitResult result;
     result.type = 2; // Box
+    // Initialize marker basics
+    result.marker.header = header;
+    result.marker.ns = "primitive_fits"; // Use consistent namespace
+    result.marker.id = 2; // Will be overwritten later
+    result.marker.type = visualization_msgs::Marker::CUBE;
+    result.marker.action = visualization_msgs::Marker::DELETE; // Default to delete
 
     if (segment_cloud->points.size() < 3) {
         ROS_DEBUG("Box fit skipped: Not enough points (%zu < 3).", segment_cloud->points.size());
-        return result; // success = false
+        return result;
     }
 
     const size_t original_segment_size = segment_cloud->points.size();
@@ -1040,9 +1076,8 @@ PCLProcessor::PrimitiveFitResult PCLProcessor::fitBox(
     ROS_INFO("Box fit (plane method): Total inliers = %zu (%.2f%% of original %zu)",
              total_explained_points, result.inlier_percentage * 100.0, original_segment_size);
 
-    // --- Proceed if conditions met ---
-    if (plane1_found && result.inlier_percentage >= config_.min_primitive_inlier_percentage) {
-        result.success = true;
+    // --- Proceed if FIRST plane was found (required for PCA) ---
+    if (plane1_found) { // Changed condition: Only need plane1 to attempt marker creation
 
         // --- PCA on First Plane ---
         pcl::PCA<pcl::PointXYZL> pca;
@@ -1087,15 +1122,15 @@ PCLProcessor::PrimitiveFitResult PCLProcessor::fitBox(
                 current_max_proj3 = std::max(current_max_proj3, proj3);
             }
             if (current_max_proj3 > current_min_proj3) {
-                 depth = current_max_proj3 - current_min_proj3;
-                 min_proj3 = current_min_proj3; // Update projection range
-                 max_proj3 = current_max_proj3;
-                 ROS_INFO("Box fit: Depth calculated from second plane: %.3f", depth);
+                depth = current_max_proj3 - current_min_proj3;
+                min_proj3 = current_min_proj3; // Update projection range
+                max_proj3 = current_max_proj3;
+                ROS_INFO("Box fit: Depth calculated from second plane: %.3f", depth);
             } else {
-                ROS_WARN("Box fit: Second plane projection resulted in non-positive depth. Using default %.3f.", depth);
+            ROS_WARN("Box fit: Second plane projection resulted in non-positive depth. Using default %.3f.", depth);
             }
         } else {
-             ROS_INFO("Box fit: Second plane not found or empty. Using default depth %.3f.", depth);
+            ROS_INFO("Box fit: Second plane not found or empty. Using default depth %.3f.", depth);
         }
 
         // --- Calculate Final Center and Orientation ---
@@ -1106,52 +1141,96 @@ PCLProcessor::PrimitiveFitResult PCLProcessor::fitBox(
         obb_quat_f.normalize();
 
         ROS_INFO("Box fit (plane method): Center: %.3f,%.3f,%.3f Dims: %.3f,%.3f,%.3f",
-                 geometric_center_world[0], geometric_center_world[1], geometric_center_world[2],
-                 width, height, depth);
+                geometric_center_world[0], geometric_center_world[1], geometric_center_world[2],
+                width, height, depth);
 
-        // --- Populate Marker ---
-        result.marker.header = header;
-        result.marker.ns = "fitted_primitive";
-        result.marker.id = 0;
-        result.marker.type = visualization_msgs::Marker::CUBE;
-        result.marker.action = visualization_msgs::Marker::ADD;
+        // --- Populate Marker (Always if plane1 found) ---
+        result.marker.action = visualization_msgs::Marker::ADD; // Set action to ADD
         result.marker.pose.position.x = geometric_center_world[0];
         result.marker.pose.position.y = geometric_center_world[1];
         result.marker.pose.position.z = geometric_center_world[2];
         result.marker.pose.orientation = tf2::toMsg(obb_quat_f.cast<double>());
-        result.marker.scale.x = width > 0 ? width : 0.01;
-        result.marker.scale.y = height > 0 ? height : 0.01;
-        result.marker.scale.z = depth > 0 ? depth : 0.01;
-        result.marker.color.r = 1.0; result.marker.color.g = 0.5; result.marker.color.b = 0.0; result.marker.color.a = 0.5; // Orange
-        result.marker.lifetime = ros::Duration();
+        result.marker.scale.x = std::max(width, 0.001f);  // Ensure positive
+        result.marker.scale.y = std::max(height, 0.001f); // Ensure positive
+        result.marker.scale.z = std::max(depth, 0.001f);  // Ensure positive
+        result.marker.color.r = 0.0f; result.marker.color.g = 0.0f; result.marker.color.b = 1.0f; result.marker.color.a = 0.5f; // Blue (default for box)
+        result.marker.lifetime = ros::Duration(); // Use configured lifetime
+
+        // --- Set success flag based on threshold ---
+        if (result.inlier_percentage >= config_.min_primitive_inlier_percentage) {
+            result.success = true;
+        } else {
+            ROS_INFO("Box fit (plane method): Explained points (%.2f%%) below threshold (%.2f%%). Still publishing marker.",
+                    result.inlier_percentage * 100.0, config_.min_primitive_inlier_percentage * 100.0);
+            result.success = false; // Explicitly false
+        }
 
     } else {
-         ROS_INFO("Box fit (plane method): Failed (Plane 1 not found or explained points < %.2f%%).", config_.min_primitive_inlier_percentage * 100.0);
-         // result.success remains false
+        ROS_INFO("Box fit (plane method): Failed (Plane 1 not found). Cannot create marker.");
+        result.success = false;
     }
     return result;
 }
 
-void PCLProcessor::clearPrimitiveMarker(const std_msgs::Header& header) {
-    if (!config_.publish_primitive_marker) return;
-
-    visualization_msgs::Marker clear_marker;
-    clear_marker.header = header;
-    clear_marker.header.stamp = ros::Time::now(); // Use current time for action
-    clear_marker.ns = "fitted_primitive";
-    clear_marker.id = 0; // Consistent ID
-    clear_marker.action = visualization_msgs::Marker::DELETE;
-    primitive_marker_pub_.publish(clear_marker);
-    ROS_DEBUG("Published primitive marker DELETE.");
+void PCLProcessor::clearPrimitiveMarkers(const std_msgs::Header& header) {
+    visualization_msgs::MarkerArray marker_array;
+    visualization_msgs::Marker marker;
+    marker.header = header; // Use the provided header (or last_primitive_header_)
+    marker.ns = "primitive_fits"; // Must match the namespace used in publishPrimitiveMarkers
+    marker.id = 0; // ID is ignored for DELETEALL
+    marker.action = visualization_msgs::Marker::DELETEALL;
+    marker_array.markers.push_back(marker);
+    primitive_marker_array_pub_.publish(marker_array); // Publish to the MarkerArray topic
+    ROS_DEBUG("Published DELETEALL for primitive markers.");
 }
 
-void PCLProcessor::publishPrimitiveMarker(const visualization_msgs::Marker& marker) {
-    if (!config_.publish_primitive_marker) return;
+void PCLProcessor::publishPrimitiveMarkers(
+    const PrimitiveFitResult& sphere_result,
+    const PrimitiveFitResult& cylinder_result,
+    const PrimitiveFitResult& box_result,
+    int best_type, // 0=sphere, 1=cylinder, 2=box, -1=none
+    const std_msgs::Header& header)
+{
+    visualization_msgs::MarkerArray marker_array;
+    std::vector<PrimitiveFitResult> all_results = {sphere_result, cylinder_result, box_result};
+    int current_id = 0;
 
-    if (marker.action == visualization_msgs::Marker::ADD) {
-        primitive_marker_pub_.publish(marker);
-        ROS_DEBUG("Published primitive marker ADD (Type: %d).", marker.type);
+    for (size_t i = 0; i < all_results.size(); ++i) {
+        if(!config_.publish_unselected_primitive_markers && all_results[i].type != best_type) {
+            continue; // Skip non-best markers if config is set
+        }
+        // Need a non-const copy to modify the marker before adding
+        PrimitiveFitResult result = all_results[i];
+
+        // Only add markers that were successfully generated (action == ADD)
+        // The fit functions should set this correctly.
+        if (result.marker.action == visualization_msgs::Marker::ADD) {
+            result.marker.header = header; // Ensure header is current
+            result.marker.id = current_id++; // Assign unique ID within the array
+            result.marker.ns = "primitive_fits"; // Ensure consistent namespace
+            result.marker.lifetime = ros::Duration(); // Set lifetime
+
+            // Check if this is the best fit (and a best fit exists)
+            if (best_type != -1 && result.type == best_type) {
+                // Highlight the best fit marker (e.g., make it Yellow and less transparent)
+                result.marker.color.r = 1.0f;
+                result.marker.color.g = 1.0f;
+                result.marker.color.b = 0.0f;
+                result.marker.color.a = 0.8f; // Make it slightly more opaque
+            }
+            // Else: Keep the original color set by fitSphere/fitCylinder/fitBox
+
+            marker_array.markers.push_back(result.marker);
+        }
+    }
+
+    // --- Publish the array ---
+    if (!marker_array.markers.empty()) {
+        primitive_marker_array_pub_.publish(marker_array);
     } else {
-        ROS_WARN("Attempted to publish non-ADD primitive marker.");
+        // If no markers were generated at all, explicitly clear previous ones
+        // Use the stored header from the last successful publish if needed,
+        // or the current header if clearing immediately.
+        clearPrimitiveMarkers(header); // Or use 'header' if preferred
     }
 }
