@@ -38,6 +38,12 @@ planar_distance_threshold: 0.015    # RANSAC distance threshold (meters)
 min_planar_inlier_percentage: 0.85  # Minimum percentage of inliers to classify as planar
 max_planar_segment_size: 5000       # Segments larger than this (in points) are checked for planarity
 
+publish_centroid_markers: true # if true, it will publish the centroid markers for the segmented objects
+# Filtered cloud visualization (post-planar filtering)
+publish_filtered_cloud: true        # if true, publish the cloud after planar filtering
+filtered_cloud_topic: "/filtered_segments_cloud" # topic for the filtered cloud
+
+
 # Primitive Fitting parameters
 primitive_marker_topic: "/primitive_marker" # Topic for the fitted primitive visualization
 primitive_distance_threshold: 0.01          # RANSAC distance threshold for sphere/cylinder

@@ -26,12 +26,15 @@ void loadConfig(ros::NodeHandle& nh, PCLProcessorConfig& config) {
     nh.param<float>("small_segment_threshold_percent", config.small_segment_threshold_percent, 1.0f);
     nh.param<bool>("use_single_camera_transform", config.use_single_camera_transform, false);
     nh.param<int>("supervoxel_refinement_iterations", config.supervoxel_refinement_iterations, 2);
+    nh.param<bool>("publish_centroid_markers", config.publish_centroid_markers, true);
     // Load planar filtering parameters
     nh.param<bool>("filter_planar_segments", config.filter_planar_segments, true);
     nh.param<float>("planar_distance_threshold", config.planar_distance_threshold, 0.015f); // e.g., 1.5 cm
     nh.param<float>("min_planar_inlier_percentage", config.min_planar_inlier_percentage, 0.85f); // e.g., 85%
     nh.param<int>("max_planar_segment_size", config.max_planar_segment_size, 5000); // e.g., segments larger than 5000 points are checked
-    // Load primitive fitting parameters
+    // Load filtered cloud visualization parameters
+    nh.param<bool>("publish_filtered_cloud", config.publish_filtered_cloud, true);
+    nh.param<std::string>("filtered_cloud_topic", config.filtered_cloud_topic, "/filtered_segments_cloud");
     // Load primitive fitting parameters
     nh.param<std::string>("primitive_marker_topic", config.primitive_marker_topic, "/primitive_marker");
     nh.param<float>("primitive_distance_threshold", config.primitive_distance_threshold, 0.01f); // e.g., 1 cm
