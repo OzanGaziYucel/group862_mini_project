@@ -46,7 +46,7 @@ filtered_cloud_topic: "/filtered_segments_cloud" # topic for the filtered cloud
 
 # Primitive Fitting parameters
 publish_primitive_markers: true # if true, it will publish the fitted primitive markers
-publish_unselected_primitive_markers: true
+publish_unselected_primitive_markers: false
 primitive_marker_topic: "/primitive_marker" # Topic for the fitted primitive visualization
 primitive_distance_threshold: 0.01          # RANSAC distance threshold for sphere/cylinder
 min_primitive_inlier_percentage: 0.70       # Min inlier % to consider RANSAC fit successful

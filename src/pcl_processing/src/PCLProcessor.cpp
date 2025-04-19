@@ -932,33 +932,24 @@ PCLProcessor::PrimitiveFitResult PCLProcessor::fitCylinder(
     seg.segment(*inliers, *coefficients);
 
     if (!inliers->indices.empty() && coefficients->values.size() == 7) {
-        result.inlier_percentage = static_cast<double>(inliers->indices.size()) / segment_cloud->points.size();
+        // Get cylinder properties
         float radius = coefficients->values[6];
-        ROS_INFO("Cylinder fit: %.2f%% inliers (Coeffs: pt=%.3f,%.3f,%.3f dir=%.3f,%.3f,%.3f radius=%.3f)",
-                 result.inlier_percentage * 100.0,
-                 coefficients->values[0], coefficients->values[1], coefficients->values[2],
-                 coefficients->values[3], coefficients->values[4], coefficients->values[5],
-                 radius);
-
-        // --- Calculate Marker Pose and Scale (Always if fit found) ---
         Eigen::Vector3d axis_dir(coefficients->values[3], coefficients->values[4], coefficients->values[5]);
         axis_dir.normalize();
         Eigen::Vector3d point_on_axis(coefficients->values[0], coefficients->values[1], coefficients->values[2]);
 
+        // Calculate min/max projections along axis (as currently done)
         double min_proj = std::numeric_limits<double>::max();
         double max_proj = std::numeric_limits<double>::lowest();
-        // Use segment_cloud, not just inliers, for projection bounds? Or just inliers? Let's use inliers.
-        if (!inliers->indices.empty()) { // Check inliers again before iterating
+        if (!inliers->indices.empty()) {
             for (int index : inliers->indices) {
                 Eigen::Vector3d point(segment_cloud->points[index].x, segment_cloud->points[index].y, segment_cloud->points[index].z);
                 double proj = (point - point_on_axis).dot(axis_dir);
                 min_proj = std::min(min_proj, proj);
                 max_proj = std::max(max_proj, proj);
             }
-        } else { // Should not happen if we are inside the outer if, but safety check
-            min_proj = 0; max_proj = 0;
         }
-
+        
         double height = (max_proj > min_proj) ? (max_proj - min_proj) : 0.01; // Ensure non-negative height
         Eigen::Vector3d center = point_on_axis + axis_dir * (min_proj + height / 2.0);
         Eigen::Quaterniond q = Eigen::Quaterniond::FromTwoVectors(Eigen::Vector3d::UnitZ(), axis_dir);
@@ -971,6 +962,51 @@ PCLProcessor::PrimitiveFitResult PCLProcessor::fitCylinder(
         result.marker.color.r = 0.0f; result.marker.color.g = 1.0f; result.marker.color.b = 0.0f; result.marker.color.a = 0.5f; // Green (default for cylinder)
         result.marker.lifetime = ros::Duration(); // Use configured lifetime
 
+
+        // Calculate complete cylinder inliers (surface + end caps)
+        std::vector<int> all_cylinder_inliers = inliers->indices; // Start with curved surface inliers
+        
+        // Calculate end cap centers
+        Eigen::Vector3d bottom_cap_center = point_on_axis + axis_dir * min_proj;
+        Eigen::Vector3d top_cap_center = point_on_axis + axis_dir * max_proj;
+        
+        // Check remaining points against end caps
+        for (size_t i = 0; i < segment_cloud->points.size(); ++i) {
+            // Skip points already counted as inliers
+            if (std::find(inliers->indices.begin(), inliers->indices.end(), i) != inliers->indices.end()) {
+                continue;
+            }
+            
+            Eigen::Vector3d point(segment_cloud->points[i].x, segment_cloud->points[i].y, segment_cloud->points[i].z);
+            
+            // Project point onto axis
+            double proj = (point - point_on_axis).dot(axis_dir);
+            
+            // Check if point is near end caps (within threshold of either cap plane)
+            if (std::abs(proj - min_proj) < config_.primitive_distance_threshold || 
+                std::abs(proj - max_proj) < config_.primitive_distance_threshold) {
+                
+                // Calculate perpendicular distance to axis
+                Eigen::Vector3d projected_point = point_on_axis + proj * axis_dir;
+                double perp_dist = (point - projected_point).norm();
+                
+                // Check if point is within the cylinder radius (plus threshold)
+                if (perp_dist <= (radius + config_.primitive_distance_threshold)) {
+                    all_cylinder_inliers.push_back(i);
+                }
+            }
+        }
+        
+        // Use complete inlier count for percentage calculation
+        
+        result.inlier_percentage = static_cast<double>(all_cylinder_inliers.size()) / segment_cloud->points.size();
+        ROS_INFO("Cylinder fit: %.2f%% inliers (%.2f%% side, %.2f%% caps) (Coeffs: pt=%.3f,%.3f,%.3f dir=%.3f,%.3f,%.3f radius=%.3f)",
+                 result.inlier_percentage * 100.0,
+                 static_cast<double>(inliers->indices.size()) / segment_cloud->points.size() * 100.0,
+                 static_cast<double>(all_cylinder_inliers.size() - inliers->indices.size()) / segment_cloud->points.size() * 100.0,
+                 coefficients->values[0], coefficients->values[1], coefficients->values[2],
+                 coefficients->values[3], coefficients->values[4], coefficients->values[5],
+                 radius);
         // --- Set success flag based on threshold ---
         if (result.inlier_percentage >= config_.min_primitive_inlier_percentage) {
             result.success = true;
@@ -1070,11 +1106,11 @@ PCLProcessor::PrimitiveFitResult PCLProcessor::fitBox(
          ROS_INFO("Box fit: Could not find the first plane.");
     }
 
-    // --- Check Total Inlier Percentage ---
-    size_t total_explained_points = plane1_inliers_count + plane2_inliers_count;
-    result.inlier_percentage = static_cast<double>(total_explained_points) / original_segment_size;
-    ROS_INFO("Box fit (plane method): Total inliers = %zu (%.2f%% of original %zu)",
-             total_explained_points, result.inlier_percentage * 100.0, original_segment_size);
+    // // --- Check Total Inlier Percentage ---
+    // size_t total_explained_points = plane1_inliers_count + plane2_inliers_count;
+    // result.inlier_percentage = static_cast<double>(total_explained_points) / original_segment_size;
+    // ROS_INFO("Box fit (plane method): Total inliers = %zu (%.2f%% of original %zu)",
+    //          total_explained_points, result.inlier_percentage * 100.0, original_segment_size);
 
     // --- Proceed if FIRST plane was found (required for PCA) ---
     if (plane1_found) { // Changed condition: Only need plane1 to attempt marker creation
@@ -1143,6 +1179,68 @@ PCLProcessor::PrimitiveFitResult PCLProcessor::fitBox(
         ROS_INFO("Box fit (plane method): Center: %.3f,%.3f,%.3f Dims: %.3f,%.3f,%.3f",
                 geometric_center_world[0], geometric_center_world[1], geometric_center_world[2],
                 width, height, depth);
+
+        // Calculate inliers for all six faces of the box
+        std::vector<int> all_box_inliers;
+                
+        // Define the six face planes in terms of normal and distance from center
+        struct BoxFace {
+            Eigen::Vector3f normal;
+            float distance;
+        };
+
+        BoxFace faces[6] = {
+            {axis1, width/2.0f},  // +X face
+            {-axis1, width/2.0f}, // -X face
+            {axis2, height/2.0f}, // +Y face
+            {-axis2, height/2.0f},// -Y face
+            {axis3, depth/2.0f},  // +Z face
+            {-axis3, depth/2.0f}  // -Z face
+        };
+
+        // Check all points against all six faces
+        for (size_t i = 0; i < segment_cloud->points.size(); ++i) {
+            Eigen::Vector3f point(segment_cloud->points[i].x, 
+                                segment_cloud->points[i].y,
+                                segment_cloud->points[i].z);
+            
+            // Vector from box center to point
+            Eigen::Vector3f center_to_point = point - geometric_center_world;
+            
+            // Check each face
+            for (int f = 0; f < 6; ++f) {
+                // Project point onto face normal
+                float dist_to_plane = std::abs(center_to_point.dot(faces[f].normal)) - faces[f].distance;
+                
+                // If point is within threshold of this face
+                if (std::abs(dist_to_plane) <= config_.primitive_distance_threshold) {
+                    // Check if point is within box bounds in other dimensions
+                    float proj1 = center_to_point.dot(axis1);
+                    float proj2 = center_to_point.dot(axis2);
+                    float proj3 = center_to_point.dot(axis3);
+                    
+                    bool within_bounds = 
+                        (std::abs(proj1) <= width/2.0f + config_.primitive_distance_threshold) &&
+                        (std::abs(proj2) <= height/2.0f + config_.primitive_distance_threshold) &&
+                        (std::abs(proj3) <= depth/2.0f + config_.primitive_distance_threshold);
+                    
+                    if (within_bounds) {
+                        all_box_inliers.push_back(i);
+                        break; // Point is an inlier, no need to check other faces
+                    }
+                }
+            }
+        }
+
+        // Remove duplicates (a point might be counted for multiple faces)
+        std::sort(all_box_inliers.begin(), all_box_inliers.end());
+        all_box_inliers.erase(std::unique(all_box_inliers.begin(), all_box_inliers.end()), all_box_inliers.end());
+
+        // Calculate complete inlier percentage
+        result.inlier_percentage = static_cast<double>(all_box_inliers.size()) / original_segment_size;
+
+        ROS_INFO("Box fit (complete): Total inliers = %zu (%.2f%% of original %zu)",
+                all_box_inliers.size(), result.inlier_percentage * 100.0, original_segment_size);
 
         // --- Populate Marker (Always if plane1 found) ---
         result.marker.action = visualization_msgs::Marker::ADD; // Set action to ADD
