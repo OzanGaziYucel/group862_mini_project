@@ -965,7 +965,7 @@ PCLProcessor::PrimitiveFitResult PCLProcessor::fitCylinder(
 
         // --- Populate Marker ---
         result.marker.action = visualization_msgs::Marker::ADD; // Set action to ADD
-        result.marker.pose = tf2::toMsg(Eigen::Affine3d(q * Eigen::Translation3d(center)));
+        result.marker.pose = tf2::toMsg(Eigen::Affine3d(Eigen::Translation3d(center) * q));
         result.marker.scale.x = result.marker.scale.y = std::max(radius * 2.0f, 0.001f); // Diameter, ensure positive
         result.marker.scale.z = std::max(height, 0.001); // Ensure positive height
         result.marker.color.r = 0.0f; result.marker.color.g = 1.0f; result.marker.color.b = 0.0f; result.marker.color.a = 0.5f; // Green (default for cylinder)

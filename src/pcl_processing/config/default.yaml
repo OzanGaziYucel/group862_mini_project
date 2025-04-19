@@ -3,7 +3,7 @@ output_topic: "/segmented_cloud"
 
 # Debug mode parameters
 debug_mode: true # if true, it will process each input message one by one, waiting for user input on the CLI
-queue_size: 40 # the number of input messages to be loaded and processed one by one
+queue_size: 166 # the number of input messages to be loaded and processed one by one
 publish_supervoxel_cloud: true # if true, it will publish the supervoxel cloud intermediate step
 supervoxel_cloud_topic: "/supervoxel_cloud" # topic to publish the supervoxel cloud
 centroid_marker_topic: "/centroid_markers" # topic to publish the centroid marker
@@ -50,7 +50,7 @@ publish_unselected_primitive_markers: true
 primitive_marker_topic: "/primitive_marker" # Topic for the fitted primitive visualization
 primitive_distance_threshold: 0.01          # RANSAC distance threshold for sphere/cylinder
 min_primitive_inlier_percentage: 0.70       # Min inlier % to consider RANSAC fit successful
-cylinder_normal_distance_weight: 0.1        # Weight for normals in cylinder RANSAC
+cylinder_normal_distance_weight: 0.01        # Weight for normals in cylinder RANSAC
 cylinder_min_radius: 0.01                   # Min radius for cylinder RANSAC (meters)
 cylinder_max_radius: 0.2                    # Max radius for cylinder RANSAC (meters)
 sphere_max_radius: 0.2                    # Max radius for sphere RANSAC (meters)
