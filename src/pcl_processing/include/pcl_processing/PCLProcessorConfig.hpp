@@ -45,6 +45,7 @@ struct PCLProcessorConfig {
     std::string filtered_cloud_topic;
 
     // Primitive Fitting parameters
+    bool publish_primitive_marker;
     std::string primitive_marker_topic;
     float primitive_distance_threshold;
     float min_primitive_inlier_percentage;
@@ -52,6 +53,7 @@ struct PCLProcessorConfig {
     float cylinder_min_radius;
     float cylinder_max_radius;
     float sphere_max_radius;
+    float box_max_size; // Maximum size for a single side of the box
 
 };
 

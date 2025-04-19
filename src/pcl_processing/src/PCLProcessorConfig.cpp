@@ -36,6 +36,7 @@ void loadConfig(ros::NodeHandle& nh, PCLProcessorConfig& config) {
     nh.param<bool>("publish_filtered_cloud", config.publish_filtered_cloud, true);
     nh.param<std::string>("filtered_cloud_topic", config.filtered_cloud_topic, "/filtered_segments_cloud");
     // Load primitive fitting parameters
+    nh.param<bool>("publish_primitive_marker", config.publish_primitive_marker, true);
     nh.param<std::string>("primitive_marker_topic", config.primitive_marker_topic, "/primitive_marker");
     nh.param<float>("primitive_distance_threshold", config.primitive_distance_threshold, 0.01f); // e.g., 1 cm
     nh.param<float>("min_primitive_inlier_percentage", config.min_primitive_inlier_percentage, 0.75f); // e.g., 75%
@@ -43,4 +44,5 @@ void loadConfig(ros::NodeHandle& nh, PCLProcessorConfig& config) {
     nh.param<float>("cylinder_min_radius", config.cylinder_min_radius, 0.01f); // e.g., 1cm min radius
     nh.param<float>("cylinder_max_radius", config.cylinder_max_radius, 0.2f); // e.g., 20cm max radius
     nh.param<float>("sphere_max_radius", config.sphere_max_radius, 0.2f); // e.g., 20cm max radius
+    nh.param<float>("box_max_size", config.box_max_size, 0.2f); // e.g., 20cm max size for a single side of the box
 }

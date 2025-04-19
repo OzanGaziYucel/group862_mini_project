@@ -103,9 +103,31 @@ private:
         const std::map<uint32_t, pcl::PointCloud<pcl::PointXYZL>::Ptr>& segment_map,
         uint32_t selected_label);
 
-    void fitAndPublishPrimitive(
+    void fitPrimitiveToTarget(
         const pcl::PointCloud<pcl::PointXYZL>::Ptr& segment_cloud,
         const std_msgs::Header& header);
 
+    struct PrimitiveFitResult {
+        bool success = false;
+        double inlier_percentage = 0.0;
+        visualization_msgs::Marker marker;
+        int type = -1; // 0: Sphere, 1: Cylinder, 2: Box, -1: None
+    };
+
+    PrimitiveFitResult fitSphere(
+        const pcl::PointCloud<pcl::PointXYZL>::Ptr& segment_cloud,
+        const std_msgs::Header& header);
+    
+    PrimitiveFitResult fitCylinder(
+        const pcl::PointCloud<pcl::PointXYZL>::Ptr& segment_cloud,
+        const std_msgs::Header& header);
+    
+    PrimitiveFitResult fitBox( // Using the plane-based method
+        const pcl::PointCloud<pcl::PointXYZL>::Ptr& segment_cloud,
+        const std_msgs::Header& header);
+    
+    // Helper for visualization
+    void clearPrimitiveMarker(const std_msgs::Header& header);
+    void publishPrimitiveMarker(const visualization_msgs::Marker& marker);
     
 };
