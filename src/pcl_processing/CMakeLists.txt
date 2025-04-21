@@ -11,8 +11,10 @@ find_package(catkin REQUIRED COMPONENTS
   pcl_conversions
   pcl_ros
   roscpp
+  message_generation
   sensor_msgs
   std_msgs
+  geometry_msgs
 )
 find_package(PCL REQUIRED
   COMPONENTS
@@ -64,6 +66,12 @@ set(CMAKE_PREFIX_PATH "/usr/lib/x86_64-linux-gnu/cmake/pcl" ${CMAKE_PREFIX_PATH}
 #   Message2.msg
 # )
 
+add_message_files(
+  FILES
+  GeometricPrimitive.msg
+  GraspReference.msg
+)
+
 ## Generate services in the 'srv' folder
 # add_service_files(
 #   FILES
@@ -83,6 +91,12 @@ set(CMAKE_PREFIX_PATH "/usr/lib/x86_64-linux-gnu/cmake/pcl" ${CMAKE_PREFIX_PATH}
 #   DEPENDENCIES
 #   sensor_msgs#   std_msgs
 # )
+
+generate_messages(
+  DEPENDENCIES
+  std_msgs
+  geometry_msgs
+)
 
 ################################################
 ## Declare ROS dynamic reconfigure parameters ##
@@ -116,7 +130,7 @@ set(CMAKE_PREFIX_PATH "/usr/lib/x86_64-linux-gnu/cmake/pcl" ${CMAKE_PREFIX_PATH}
 catkin_package(
   INCLUDE_DIRS include
 #  LIBRARIES pcl_processing
-  CATKIN_DEPENDS pcl_conversions pcl_ros roscpp sensor_msgs std_msgs
+  CATKIN_DEPENDS pcl_conversions pcl_ros roscpp sensor_msgs std_msgs geometry_msgs message_runtime
   DEPENDS PCL
 )
 
@@ -136,6 +150,7 @@ include_directories(
 add_library(pcl_processing_lib
   src/PCLProcessor.cpp
   src/PCLProcessorConfig.cpp
+  
 )
 
 # Add PCL include directories specifically to the library target
@@ -163,6 +178,13 @@ target_link_libraries(pcl_processing_node
   pcl_processing_lib # Link the library we just defined
   # ${catkin_LIBRARIES} # Already linked via pcl_processing_lib PUBLIC
   # ${PCL_LIBRARIES}   # Already linked via pcl_processing_lib PUBLIC
+)
+
+# Define your executable for the grasp estimator node
+add_executable(grasp_pose_estimation_node src/grasp_pose_estimation_node.cpp) # Add other cpp files if needed
+add_dependencies(grasp_pose_estimation_node ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS})
+target_link_libraries(grasp_pose_estimation_node
+  ${catkin_LIBRARIES}
 )
 
 ## Add cmake target dependencies of the library
@@ -223,13 +245,21 @@ add_dependencies(test_lccp ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EXPORTED
 #   DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
 # )
 
-install(TARGETS pcl_processing_node pcl_processing_lib
+install(TARGETS pcl_processing_node pcl_processing_lib grasp_pose_estimation_node
   RUNTIME DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
   LIBRARY DESTINATION ${CATKIN_PACKAGE_LIB_DESTINATION}
 )
 
 install(DIRECTORY include/${PROJECT_NAME}/
   DESTINATION ${CATKIN_PACKAGE_INCLUDE_DESTINATION}
+)
+
+install(DIRECTORY launch/
+  DESTINATION ${CATKIN_PACKAGE_SHARE_DESTINATION}/launch
+)
+
+install(DIRECTORY config/
+  DESTINATION ${CATKIN_PACKAGE_SHARE_DESTINATION}/config
 )
 
 ## Mark executables for installation
