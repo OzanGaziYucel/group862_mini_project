@@ -151,6 +151,9 @@ add_library(pcl_processing_lib
   src/PCLProcessor.cpp
   src/PCLProcessorConfig.cpp
   src/GraspPoseEstimator.cpp
+  src/SphereGraspLogic.cpp
+  src/CylinderGraspLogic.cpp
+  src/BoxGraspLogic.cpp
 )
 
 # Add PCL include directories specifically to the library target
