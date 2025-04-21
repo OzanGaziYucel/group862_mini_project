@@ -36,6 +36,7 @@ private:
     // Private helper methods
     float clamp(float value, float min_val, float max_val);
     // Potentially add vector math helpers if needed
+    double calculateApproachAngle(const geometry_msgs::Vector3& axis);
 };
 
 } // namespace pcl_processing

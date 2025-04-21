@@ -12,13 +12,19 @@ SphereGraspLogic::SphereGraspLogic(const GraspPoseEstimatorConfig& config) :
     max_wrist_angle_(config.wrist_max_angle)
 {}
 
-// Stub implementation: Always suggest PALMAR for now if above threshold
+// Select grasp type based on diameter threshold
 int8_t SphereGraspLogic::selectGraspType(float radius) {
-    // Example stub logic: Use PALMAR if diameter > threshold
-    if (2.0 * radius > diameter_threshold_) {
-        return GraspReference::GRASP_PALMAR; // Or GRASP_PINCH based on size?
+    double diameter = 2.0 * static_cast<double>(radius);
+    ROS_DEBUG("Sphere: Radius=%.3f, Diameter=%.3f, Threshold=%.3f", radius, diameter, diameter_threshold_);
+
+    if (diameter >= diameter_threshold_) {
+        ROS_DEBUG("Sphere: Diameter >= Threshold -> PALMAR grasp");
+        return GraspReference::GRASP_PALMAR;
+    } else {
+        ROS_DEBUG("Sphere: Diameter < Threshold -> LATERAL grasp");
+        // Changed from GRASP_NONE in stub to LATERAL as per requirement
+        return GraspReference::GRASP_LATERAL;
     }
-    return GraspReference::GRASP_NONE;
 }
 
 // Stub implementation: Return 0 orientation for sphere
