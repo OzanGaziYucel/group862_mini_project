@@ -76,11 +76,68 @@ double CylinderGraspLogic::calculateApproachAngle(const geometry_msgs::Vector3& 
     return angle;
 }
 
-// Stub implementation: Return 0 orientation
 float CylinderGraspLogic::computeWristOrientation(const geometry_msgs::Vector3& axis, int8_t grasp_type) {
-    // Placeholder: Implement actual logic based on axis and grasp type later
-    // For now, return 0
-    return 0.0f;
+    // Normalize the axis
+    double axis_norm = std::sqrt(axis.x * axis.x + axis.y * axis.y + axis.z * axis.z);
+    if (axis_norm < 1e-6) {
+        ROS_WARN("Cylinder axis norm is near zero. Using default orientation.");
+        return 0.0f;
+    }
+    
+    // Project axis onto XY plane to determine its base orientation
+    double axis_xy_norm = std::sqrt(axis.x * axis.x + axis.y * axis.y);
+    float orientation = 0.0f;
+    
+    // Case 1: Cylinder is mostly vertical (perpendicular to XY plane)
+    if (axis_xy_norm < 1e-6) {
+        ROS_DEBUG("Cylinder is vertical (along Z-axis)");
+        // For vertical cylinder, orientation doesn't matter much for palmar
+        // For lateral, we can use a default angle or derive from other context
+        orientation = (grasp_type == GraspReference::GRASP_LATERAL) ? lateral_grasp_offset_ : 0.0f;
+    }
+    // Case 2: Cylinder has significant XY projection (angled or horizontal)
+    else {
+        // Base angle is the orientation in XY plane
+        float base_angle = std::atan2(axis.y, axis.x);
+        
+        if (grasp_type == GraspReference::GRASP_LATERAL) {
+            // For lateral grasp, orient wrist perpendicular to cylinder axis
+            orientation = base_angle + M_PI/2.0f + lateral_grasp_offset_;
+            ROS_DEBUG("Lateral grasp: base angle %.3f + π/2 + offset %.3f", base_angle, lateral_grasp_offset_);
+        } 
+        else if (grasp_type == GraspReference::GRASP_PALMAR) {
+            // For palmar grasp, align with cylinder axis
+            // Need to handle vertical component as well for proper alignment
+            
+            // Calculate the roll angle needed to match cylinder orientation in 3D
+            // This considers the cylinder's tilt from vertical
+            double tilt_angle = std::acos(axis.z / axis_norm);
+            
+            // If cylinder is mostly horizontal, align grip with its axis
+            if (tilt_angle > M_PI/4.0 && tilt_angle < 3.0*M_PI/4.0) {
+                // Align with the axis direction in XY plane
+                orientation = base_angle;
+                ROS_DEBUG("Palmar grasp on angled cylinder: using axis XY projection angle %.3f", orientation);
+            } 
+            // If cylinder is mostly vertical, use a comfortable approach angle
+            else {
+                orientation = base_angle;
+                ROS_DEBUG("Palmar grasp on vertical-ish cylinder: using base angle %.3f", orientation);
+            }
+        }
+    }
+    
+    // Normalize angle to [-π, π] range
+    while (orientation > M_PI) orientation -= 2.0f * M_PI;
+    while (orientation < -M_PI) orientation += 2.0f * M_PI;
+    
+    // Clamp to allowed wrist angle limits
+    orientation = clamp(orientation, min_wrist_angle_, max_wrist_angle_);
+    
+    ROS_DEBUG("Final wrist orientation: %.3f rad (clamped to [%.3f, %.3f])", 
+             orientation, min_wrist_angle_, max_wrist_angle_);
+             
+    return orientation;
 }
 
 // Stub implementation: Return diameter + padding
