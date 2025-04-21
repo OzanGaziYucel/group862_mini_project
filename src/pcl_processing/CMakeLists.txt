@@ -150,7 +150,7 @@ include_directories(
 add_library(pcl_processing_lib
   src/PCLProcessor.cpp
   src/PCLProcessorConfig.cpp
-  
+  src/GraspPoseEstimator.cpp
 )
 
 # Add PCL include directories specifically to the library target
@@ -184,6 +184,7 @@ target_link_libraries(pcl_processing_node
 add_executable(grasp_pose_estimation_node src/grasp_pose_estimation_node.cpp) # Add other cpp files if needed
 add_dependencies(grasp_pose_estimation_node ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS})
 target_link_libraries(grasp_pose_estimation_node
+  pcl_processing_lib
   ${catkin_LIBRARIES}
 )
 
