@@ -90,10 +90,11 @@ int8_t GraspPoseEstimator::selectGraspType(const pcl_processing::GeometricPrimit
             // Assuming dimensions[0]=radius, dimensions[1]=length, orientation[0]=axis
             return cylinder_logic_.selectGraspType(msg->dimensions[0], msg->dimensions[1], msg->orientation[0]);
         case GeometricPrimitive::SHAPE_BOX:
-             if (msg->dimensions.size() < 3) {
-                 ROS_WARN("Box message has insufficient dimensions."); return GraspReference::GRASP_NONE;
-            }
-            return box_logic_.selectGraspType(msg->dimensions);
+            if (msg->dimensions.size() < 3 || msg->orientation.size() < 3) { // Check axes size too
+                ROS_WARN("Box message has insufficient dimensions or orientation."); return GraspReference::GRASP_NONE;
+           }
+           // Pass center, axes, and dimensions
+           return box_logic_.selectGraspType(msg->center, msg->orientation, msg->dimensions);
         case GeometricPrimitive::SHAPE_UNKNOWN:
         default:
             ROS_WARN("Received unknown or invalid shape type: %d", msg->shape_type);

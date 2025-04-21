@@ -22,5 +22,5 @@ grasp:
     max_angle: 1.57                  # Radians (90 degrees). Clamp wrist orientation.
 
   filter:
-    moving_average_window_size: 5    # Number of frames for size/orientation smoothing.
+    moving_average_window_size: 10    # Number of frames for size/orientation smoothing.
     majority_voting_window_size: 5   # Number of frames for grasp type smoothing.
