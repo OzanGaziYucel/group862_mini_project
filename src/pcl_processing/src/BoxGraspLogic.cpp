@@ -75,10 +75,66 @@ int8_t BoxGraspLogic::selectGraspType(const geometry_msgs::Point& center, const 
     }
 }
 
-// Stub implementation: Return 0 orientation
-float BoxGraspLogic::computeWristOrientation(const std::vector<geometry_msgs::Vector3>& axes, const std::vector<float>& dimensions, int8_t grasp_type) {
-    // Placeholder: Implement actual logic based on axes, dimensions, and grasp type later
-    return 0.0f;
+float BoxGraspLogic::computeWristOrientation(const std::vector<geometry_msgs::Vector3>& axes, 
+                                            const std::vector<float>& dimensions, 
+                                            int8_t grasp_type) {
+    // Get target face information
+    TargetFaceInfo face_info = selectTargetFace(center_, axes, dimensions);
+    
+    if (!face_info.valid) {
+        ROS_WARN("Cannot compute wrist orientation: No valid target face found");
+        return 0.0f;
+    }
+    
+    // Get face normal axis and the in-plane axes
+    int normal_idx = face_info.axis_index;
+    int u_idx = (normal_idx + 1) % 3;
+    int v_idx = (normal_idx + 2) % 3;
+    
+    // Calculate the orientation based on grasp type
+    float orientation = 0.0f;
+    
+    if (grasp_type == GraspReference::GRASP_PALMAR) {
+        // For palmar grasp: Align with the longer dimension of the face
+        if (dimensions[u_idx] > dimensions[v_idx]) {
+            // Calculate angle between the u axis projection onto XY plane and X axis
+            float u_x = axes[u_idx].x;
+            float u_y = axes[u_idx].y;
+            orientation = atan2(u_y, u_x);
+        } else {
+            // Calculate angle between the v axis projection onto XY plane and X axis
+            float v_x = axes[v_idx].x;
+            float v_y = axes[v_idx].y;
+            orientation = atan2(v_y, v_x);
+        }
+    } 
+    else if (grasp_type == GraspReference::GRASP_LATERAL) {
+        // For lateral grasp: Align with the shorter dimension + offset
+        if (dimensions[u_idx] <= dimensions[v_idx]) {
+            // Calculate angle between the u axis projection onto XY plane and X axis
+            float u_x = axes[u_idx].x;
+            float u_y = axes[u_idx].y;
+            orientation = atan2(u_y, u_x) + lateral_grasp_offset_;
+        } else {
+            // Calculate angle between the v axis projection onto XY plane and X axis
+            float v_x = axes[v_idx].x;
+            float v_y = axes[v_idx].y;
+            orientation = atan2(v_y, v_x) + lateral_grasp_offset_;
+        }
+    }
+    
+    // Normalize the angle to be within min/max limits
+    while (orientation > M_PI) orientation -= 2.0f * M_PI;
+    while (orientation < -M_PI) orientation += 2.0f * M_PI;
+    
+    // Clamp the orientation within the allowed wrist angle range
+    orientation = clamp(orientation, min_wrist_angle_, max_wrist_angle_);
+    
+    ROS_DEBUG("Computed wrist orientation: %.3f rad (%.1f deg) for grasp type %d",
+              orientation, orientation * 180.0f / M_PI, grasp_type);
+              
+    return orientation;
+}
 }
 
 float BoxGraspLogic::computeGraspSize(const std::vector<geometry_msgs::Vector3>& axes, const std::vector<float>& dimensions) {
