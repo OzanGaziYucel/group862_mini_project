@@ -22,7 +22,7 @@ public:
 
     // Public methods for calculations specific to spheres
     int8_t selectGraspType(float radius);
-    float computeWristOrientation(int8_t grasp_type); // Simple for sphere
+    float computeWristOrientation(int8_t grasp_type, const geometry_msgs::Point& approach_direction);
     float computeGraspSize(float radius);
 
 private:

@@ -27,16 +27,49 @@ int8_t SphereGraspLogic::selectGraspType(float radius) {
     }
 }
 
-// Stub implementation: Return 0 orientation for sphere
-float SphereGraspLogic::computeWristOrientation(int8_t grasp_type) {
-    // Sphere orientation is simple, often aligned with hand base.
-    // Could potentially add offset for lateral grasp if needed.
-    // if (grasp_type == GraspReference::GRASP_LATERAL) {
-    //     return lateral_grasp_offset_;
-    // }
-    return 0.0f; // Default orientation
+float SphereGraspLogic::computeWristOrientation(int8_t grasp_type, const geometry_msgs::Point& approach_direction) {
+    // Normalize approach direction in XY plane
+    double approach_xy_norm = std::sqrt(approach_direction.x * approach_direction.x + 
+                                       approach_direction.y * approach_direction.y);
+    
+    // Default orientation in case of invalid approach
+    float orientation = 0.0f;
+    
+    if (approach_xy_norm < 1e-6) {
+        // Approach is almost perfectly vertical, use default orientation
+        ROS_DEBUG("Sphere: approach is vertical, using default orientation");
+        if (grasp_type == GraspReference::GRASP_LATERAL) {
+            orientation = lateral_grasp_offset_;
+        } else {
+            orientation = 0.0f;
+        }
+    } else {
+        // Calculate base angle in XY plane
+        float base_angle = std::atan2(approach_direction.y, approach_direction.x);
+        
+        if (grasp_type == GraspReference::GRASP_LATERAL) {
+            // For lateral grasp on sphere, orient perpendicular to approach vector
+            // This positions fingers naturally around the edge of the sphere
+            orientation = base_angle + M_PI/2.0f + lateral_grasp_offset_;
+            ROS_DEBUG("Sphere: lateral grasp, orientation = %.3f (base + π/2 + offset)", orientation);
+        } else { // GRASP_PALMAR
+            // For palmar grasp, align wrist with approach direction
+            // This positions the palm directly facing the sphere
+            orientation = base_angle;
+            ROS_DEBUG("Sphere: palmar grasp, orientation = %.3f (aligned with approach)", orientation);
+        }
+    }
+    
+    // Normalize angle to [-π, π] range
+    while (orientation > M_PI) orientation -= 2.0f * M_PI;
+    while (orientation < -M_PI) orientation += 2.0f * M_PI;
+    
+    // Clamp to allowed wrist angle limits
+    orientation = clamp(orientation, min_wrist_angle_, max_wrist_angle_);
+    
+    ROS_DEBUG("Sphere: final wrist orientation = %.3f (after clamping)", orientation);
+    return orientation;
 }
-
 // Stub implementation: Return diameter + padding
 float SphereGraspLogic::computeGraspSize(float radius) {
     return (2.0f * radius) + static_cast<float>(padding_);

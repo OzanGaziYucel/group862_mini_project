@@ -88,43 +88,27 @@ float CylinderGraspLogic::computeWristOrientation(const geometry_msgs::Vector3& 
     double axis_xy_norm = std::sqrt(axis.x * axis.x + axis.y * axis.y);
     float orientation = 0.0f;
     
-    // Case 1: Cylinder is mostly vertical (perpendicular to XY plane)
+    // Special case: Cylinder is almost perfectly vertical
     if (axis_xy_norm < 1e-6) {
         ROS_DEBUG("Cylinder is vertical (along Z-axis)");
-        // For vertical cylinder, orientation doesn't matter much for palmar
-        // For lateral, we can use a default angle or derive from other context
-        orientation = (grasp_type == GraspReference::GRASP_LATERAL) ? lateral_grasp_offset_ : 0.0f;
+        // For vertical cylinders, use default or offset orientation
+        return (grasp_type == GraspReference::GRASP_LATERAL) ? lateral_grasp_offset_ : 0.0f;
     }
-    // Case 2: Cylinder has significant XY projection (angled or horizontal)
-    else {
-        // Base angle is the orientation in XY plane
-        float base_angle = std::atan2(axis.y, axis.x);
-        
-        if (grasp_type == GraspReference::GRASP_LATERAL) {
-            // For lateral grasp, orient wrist perpendicular to cylinder axis
-            orientation = base_angle + M_PI/2.0f + lateral_grasp_offset_;
-            ROS_DEBUG("Lateral grasp: base angle %.3f + π/2 + offset %.3f", base_angle, lateral_grasp_offset_);
-        } 
-        else if (grasp_type == GraspReference::GRASP_PALMAR) {
-            // For palmar grasp, align with cylinder axis
-            // Need to handle vertical component as well for proper alignment
-            
-            // Calculate the roll angle needed to match cylinder orientation in 3D
-            // This considers the cylinder's tilt from vertical
-            double tilt_angle = std::acos(axis.z / axis_norm);
-            
-            // If cylinder is mostly horizontal, align grip with its axis
-            if (tilt_angle > M_PI/4.0 && tilt_angle < 3.0*M_PI/4.0) {
-                // Align with the axis direction in XY plane
-                orientation = base_angle;
-                ROS_DEBUG("Palmar grasp on angled cylinder: using axis XY projection angle %.3f", orientation);
-            } 
-            // If cylinder is mostly vertical, use a comfortable approach angle
-            else {
-                orientation = base_angle;
-                ROS_DEBUG("Palmar grasp on vertical-ish cylinder: using base angle %.3f", orientation);
-            }
-        }
+    
+    // Calculate base angle in XY plane
+    float base_angle = std::atan2(axis.y, axis.x);
+    
+    // Apply grasp-specific orientation
+    if (grasp_type == GraspReference::GRASP_LATERAL) {
+        // For lateral: perpendicular to cylinder axis + offset
+        orientation = base_angle + M_PI/2.0f + lateral_grasp_offset_;
+        ROS_DEBUG("LATERAL grasp: orienting perpendicular to cylinder (%.3f + π/2 + %.3f)",
+                 base_angle, lateral_grasp_offset_);
+    } 
+    else { // PALMAR or other
+        // For palmar: align with cylinder axis
+        orientation = base_angle;
+        ROS_DEBUG("PALMAR grasp: orienting along cylinder axis (%.3f)", base_angle);
     }
     
     // Normalize angle to [-π, π] range
