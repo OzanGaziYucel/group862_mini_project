@@ -46,4 +46,5 @@ void loadConfig(ros::NodeHandle& nh, PCLProcessorConfig& config) {
     nh.param<float>("cylinder_max_radius", config.cylinder_max_radius, 0.2f); // e.g., 20cm max radius
     nh.param<float>("sphere_max_radius", config.sphere_max_radius, 0.2f); // e.g., 20cm max radius
     nh.param<float>("box_max_size", config.box_max_size, 0.2f); // e.g., 20cm max size for a single side of the box
+    nh.param<std::string>("geometric_primitive_topic", config.geometric_primitive_topic, "/geometric_primitive");
 }

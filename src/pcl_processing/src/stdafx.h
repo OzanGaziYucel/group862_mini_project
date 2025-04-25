@@ -16,6 +16,8 @@
 #include <visualization_msgs/MarkerArray.h>
 #include <visualization_msgs/Marker.h>
 #include <std_msgs/Header.h> // Often needed with ROS messages
+#include "pcl_processing/GeometricPrimitive.h"
+
 
 // PCL Core & Common
 #include <pcl_conversions/pcl_conversions.h>
@@ -50,6 +52,9 @@
 
 // TF2/Eigen
 #include <tf2_eigen/tf2_eigen.h>
+#include <tf2/LinearMath/Matrix3x3.h>
+#include <tf2/LinearMath/Quaternion.h>
+#include <tf2_geometry_msgs/tf2_geometry_msgs.h>
 
 // Project Headers (Include these last within the PCH)
 // Note: If PCLProcessorConfig.hpp changes frequently, it might be better

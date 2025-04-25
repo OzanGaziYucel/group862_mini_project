@@ -55,3 +55,4 @@ cylinder_min_radius: 0.01                   # Min radius for cylinder RANSAC (me
 cylinder_max_radius: 0.2                    # Max radius for cylinder RANSAC (meters)
 sphere_max_radius: 0.2                    # Max radius for sphere RANSAC (meters)
 box_max_size: 0.2                        # Max size for box RANSAC (meters)
+geometric_primitive_topic: "/geometric_primitive"  # Topic for publishing primitive data messages

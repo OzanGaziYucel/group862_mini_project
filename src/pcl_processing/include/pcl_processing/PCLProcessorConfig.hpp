@@ -55,6 +55,7 @@ struct PCLProcessorConfig {
     float cylinder_max_radius;
     float sphere_max_radius;
     float box_max_size; // Maximum size for a single side of the box
+    std::string geometric_primitive_topic;
 
 };
 

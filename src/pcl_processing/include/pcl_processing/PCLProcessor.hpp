@@ -26,6 +26,7 @@ private:
     ros::Publisher filtered_pub_;
     // Header for the last centroid message, needed for clearing previous markers
     std_msgs::Header last_centroid_header_;
+    ros::Publisher primitive_pub_;
 
 
     // Processing methods

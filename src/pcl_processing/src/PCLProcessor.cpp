@@ -14,6 +14,7 @@ PCLProcessor::PCLProcessor(ros::NodeHandle& nh, const PCLProcessorConfig& config
     // primitive_marker_pub_ = nh.advertise<visualization_msgs::Marker>(config_.primitive_marker_topic, 1);
     primitive_marker_array_pub_ = nh.advertise<visualization_msgs::MarkerArray>(config_.primitive_marker_topic, 1);
     filtered_pub_ = nh.advertise<sensor_msgs::PointCloud2>(config_.filtered_cloud_topic, 1);
+    primitive_pub_ = nh.advertise<pcl_processing::GeometricPrimitive>(config_.geometric_primitive_topic, 1);
 }
 
 void PCLProcessor::processCloud(const sensor_msgs::PointCloud2ConstPtr& cloud_msg) {
@@ -1333,6 +1334,86 @@ void PCLProcessor::publishPrimitiveMarkers(
 
             marker_array.markers.push_back(result.marker);
         }
+    }
+
+    // Add to publish GeometricPrimitive message for the best fit
+    if (best_type >= 0 && best_type <= 2) {
+        pcl_processing::GeometricPrimitive primitive_msg;
+        primitive_msg.header = header;
+        
+        // Get the result for the best fit type
+        const PrimitiveFitResult& best_result = (best_type == 0) ? sphere_result : 
+                                               (best_type == 1) ? cylinder_result : box_result;
+        
+        // Set shape type
+        if (best_type == 0) {
+            primitive_msg.shape_type = pcl_processing::GeometricPrimitive::SHAPE_SPHERE;
+            
+            // Center from the marker
+            primitive_msg.center.x = best_result.marker.pose.position.x;
+            primitive_msg.center.y = best_result.marker.pose.position.y;
+            primitive_msg.center.z = best_result.marker.pose.position.z;
+            
+            // Radius (half of marker scale.x for sphere)
+            primitive_msg.dimensions.push_back(best_result.marker.scale.x / 2.0f);
+            
+        } else if (best_type == 1) {
+            primitive_msg.shape_type = pcl_processing::GeometricPrimitive::SHAPE_CYLINDER;
+            
+            // Center from the marker
+            primitive_msg.center.x = best_result.marker.pose.position.x;
+            primitive_msg.center.y = best_result.marker.pose.position.y;
+            primitive_msg.center.z = best_result.marker.pose.position.z;
+            
+            // Extract cylinder axis from quaternion
+            geometry_msgs::Vector3 main_axis;
+            tf2::Quaternion q;
+            tf2::fromMsg(best_result.marker.pose.orientation, q);
+            tf2::Matrix3x3 m(q);
+            tf2::Vector3 z_axis = m.getColumn(2); // Z column is the axis for cylinders
+            main_axis.x = z_axis.x();
+            main_axis.y = z_axis.y();
+            main_axis.z = z_axis.z();
+            primitive_msg.orientation.push_back(main_axis);
+            
+            // Dimensions: radius and height
+            primitive_msg.dimensions.push_back(best_result.marker.scale.x / 2.0f); // radius
+            primitive_msg.dimensions.push_back(best_result.marker.scale.z);         // height
+            
+        } else { // Box
+            primitive_msg.shape_type = pcl_processing::GeometricPrimitive::SHAPE_BOX;
+            // Center from the marker
+            primitive_msg.center.x = best_result.marker.pose.position.x;
+            primitive_msg.center.y = best_result.marker.pose.position.y;
+            primitive_msg.center.z = best_result.marker.pose.position.z;
+            
+            // Extract box axes from quaternion
+            tf2::Quaternion q;
+            tf2::fromMsg(best_result.marker.pose.orientation, q);
+            tf2::Matrix3x3 m(q);
+            
+            // Get the three principal axes
+            for (int i = 0; i < 3; ++i) {
+                geometry_msgs::Vector3 axis;
+                tf2::Vector3 col = m.getColumn(i);
+                axis.x = col.x();
+                axis.y = col.y();
+                axis.z = col.z();
+                primitive_msg.orientation.push_back(axis);
+            }
+            
+            // Box dimensions
+            primitive_msg.dimensions.push_back(best_result.marker.scale.x); // width
+            primitive_msg.dimensions.push_back(best_result.marker.scale.y); // height
+            primitive_msg.dimensions.push_back(best_result.marker.scale.z); // depth
+        }
+        
+        // Publish the geometric primitive message
+        primitive_pub_.publish(primitive_msg);
+        ROS_INFO("Published GeometricPrimitive message: type=%d", primitive_msg.shape_type);
+    } else {
+        // No valid primitive found
+        ROS_DEBUG("No valid primitive found, not publishing GeometricPrimitive message");
     }
 
     // --- Publish the array ---
