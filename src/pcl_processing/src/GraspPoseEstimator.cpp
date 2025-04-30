@@ -109,9 +109,21 @@ float GraspPoseEstimator::computeWristOrientation(const pcl_processing::Geometri
     }
 
     float raw_orientation = 0.0f;
+    // Create a default approach direction (from origin to center)
+    geometry_msgs::Point approach_dir;
+
     switch (msg->shape_type) {
-        case GeometricPrimitive::SHAPE_SPHERE:
-            raw_orientation = sphere_logic_.computeWristOrientation(grasp_type);
+        case GeometricPrimitive::SHAPE_SPHERE:                    
+            if (!msg->center.x && !msg->center.y && !msg->center.z) {
+                // If no center provided, use default approach from front
+                approach_dir.x = 0;
+                approach_dir.y = 0; 
+                approach_dir.z = 1;
+            } else {
+                // Use direction from origin to sphere center
+                approach_dir = msg->center;
+            }
+            raw_orientation = sphere_logic_.computeWristOrientation(grasp_type, approach_dir);
             break;
         case GeometricPrimitive::SHAPE_CYLINDER:
              if (msg->orientation.empty()) {

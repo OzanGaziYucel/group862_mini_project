@@ -79,7 +79,10 @@ float BoxGraspLogic::computeWristOrientation(const std::vector<geometry_msgs::Ve
                                             const std::vector<float>& dimensions, 
                                             int8_t grasp_type) {
     // Get target face information
-    TargetFaceInfo face_info = selectTargetFace(center_, axes, dimensions);
+    geometry_msgs::Point center;
+    
+    // Get target face information
+    TargetFaceInfo face_info = selectTargetFace(center, axes, dimensions);
     
     if (!face_info.valid) {
         ROS_WARN("Cannot compute wrist orientation: No valid target face found");
@@ -135,11 +138,14 @@ float BoxGraspLogic::computeWristOrientation(const std::vector<geometry_msgs::Ve
               
     return orientation;
 }
-}
+
 
 float BoxGraspLogic::computeGraspSize(const std::vector<geometry_msgs::Vector3>& axes, const std::vector<float>& dimensions) {
+    
+    geometry_msgs::Point center;
+    
     // Use the target face width + padding for a more accurate grasp size
-    TargetFaceInfo face_info = selectTargetFace(center_, axes, dimensions);
+    TargetFaceInfo face_info = selectTargetFace(center, axes, dimensions);
     
     if (face_info.valid) {
         // Use the face width (smaller dimension of the face) for grasping
@@ -159,7 +165,10 @@ float BoxGraspLogic::computeGraspSize(const std::vector<geometry_msgs::Vector3>&
         return min_dim + static_cast<float>(padding_);
     }
 
-}}
+    // If dimensions vector is too small, return a default
+    return static_cast<float>(padding_);
+
+}
 
 // Helper function
 float BoxGraspLogic::clamp(float value, float min_val, float max_val) {
